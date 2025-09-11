@@ -1,5 +1,7 @@
 use std::fmt::Formatter;
 use std::process::{Command, Stdio};
+use crate::display::display;
+use crate::parse::parse;
 
 macro_rules! run_error {
     ($($arg:tt)*) => {
@@ -8,7 +10,7 @@ macro_rules! run_error {
 }
 
 pub struct RunError {
-    error: String
+    pub error: String
 }
 
 impl std::fmt::Display for RunError {
@@ -17,7 +19,7 @@ impl std::fmt::Display for RunError {
     }
 }
 
-pub fn run() -> Result<String, RunError> {
+pub fn run() -> Result<(), RunError> {
     let cmd_result = Command::new("cargo")
         .arg("test")
         .stdout(Stdio::piped())
@@ -37,6 +39,11 @@ pub fn run() -> Result<String, RunError> {
             return run_error!("failed to parse raw command output")
         }
     };
-
-    Ok(output)
+    
+    match parse(output) {
+        Ok(res) => display(res),
+        Err(err) => return Err(err.to_run_error())
+    }
+    
+    Ok(())
 }

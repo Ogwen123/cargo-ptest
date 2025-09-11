@@ -1,11 +1,14 @@
 mod run;
 mod parse;
+mod display;
 
-use std::process::{Command, Stdio};
 use crate::run::run;
 
 fn main() {
-    run();
+    match run() {
+        Ok(_) => {},
+        Err(err) => println!("{}", err)
+    }
 }
 
 #[cfg(test)]
