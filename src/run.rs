@@ -20,8 +20,39 @@ impl std::fmt::Display for RunError {
 }
 
 pub fn run() -> Result<(), RunError> {
+
+    let unfiltered_args: Vec<String> = std::env::args().collect();
+
+    let mut args: Vec<String>;
+
+    // when running cargo ptest the args look like ["C:\\Users\\user\\.cargo\\bin\\cargo-ptest.exe", "ptest", ...]
+    // when running cargo-ptest the args look like ["cargo-ptest"]
+
+    if unfiltered_args[0] == "cargo-ptest" {
+        args = unfiltered_args[1..].to_vec();
+    } else if unfiltered_args[1] == "ptest" {
+        args = unfiltered_args[2..].to_vec();
+    } else {
+        return run_error!("how did you manage to see this error")
+    }
+
+    let mut complete_args: Vec<String> = vec!["--tests".to_string(), "--no-fail-fast".to_string()]; // --no-fail-fast makes sure all the unit, integration and docs tests are run
+
+    complete_args.append(&mut args);
+
+    let has_double_dash = complete_args.iter().any(|x| x == "--");
+
+    complete_args = complete_args.iter().filter_map(|x| if x != &"--nocapture" { Some(x.to_string()) } else { None } ).collect(); // changes how the test data is output
+    
+    if !has_double_dash {
+        complete_args.push("--".to_string())
+    }
+    complete_args.push("--color=always".to_string());
+    
+    println!("{:?}", complete_args);
     let cmd_result = Command::new("cargo")
         .arg("test")
+        .args(&complete_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output();
@@ -39,6 +70,10 @@ pub fn run() -> Result<(), RunError> {
             return run_error!("failed to parse raw command output")
         }
     };
+
+    if complete_args.contains(&"--help".to_string()) || complete_args.contains(&"-h".to_string()) {
+        println!("{}", output);
+    }
     
     match parse(output) {
         Ok(res) => display(res),

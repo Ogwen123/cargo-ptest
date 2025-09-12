@@ -30,7 +30,12 @@ impl ParseError {
     }
 }
 
+// possible endings - ok, FAILED, ignored
+
+// keep looping until we stop finding running x test messages
+
 pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError> {
+    println!("{}", output);
     // regexes
     let count_line_match = Regex::new(r"running (?<count>[0-9]+) tests").unwrap();
     let test_run_match = Regex::new(r"running (?<count>.) tests").unwrap();
@@ -42,21 +47,28 @@ pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError
 
     let mut lines  = windows_safe.split("\n").filter(|x| x.len() != 0);
 
-    let l1 = lines.next().unwrap().trim();
-    let Some(capture) = count_line_match.captures(l1) else { return parse_error!("could not find the number of tests being ran") };
+    let test_blocks_found = 0;
 
-    let count_str = &capture["count"];
-    println!("{}", count_str);
+    loop {
+        let test_block_intro = lines.next().unwrap().trim();
+        let capture = match count_line_match.captures(test_block_intro) {
+            Some(res) => res,
+            None => {
+                if test_blocks_found == 0 {
+                    return parse_error!("could not find any tests in the input")
+                } else {
+                    break
+                }
+            }
+        };
 
-    let count: usize = match count_str.parse::<usize>() {
-        Ok(res) => res,
-        Err(_) => return parse_error!("Could not convert count to an number, got: {}", count_str)
-    };
+        let count_str = &capture["count"];
 
-    for i in 0..count {
-        let line = lines.next().unwrap().trim();
-
-        println!("line: {}", line);
+        let count: usize = match count_str.parse::<usize>() {
+            Ok(res) => res,
+            Err(_) => return parse_error!("Could not convert count to an number, got: {}", count_str)
+        };
+        
     }
 
     Ok(tree)
