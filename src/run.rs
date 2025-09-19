@@ -45,25 +45,31 @@ pub fn run() -> Result<(), RunError> {
     }
 
     //let mut complete_args: Vec<String> = vec!["--tests".to_string(), "--no-fail-fast".to_string()]; // --no-fail-fast makes sure all the unit, integration and docs tests are run
-    let mut complete_args: Vec<String> = Vec::new();
+    let mut forward_args: Vec<String> = Vec::new();
+    let mut consume_args: Vec<String> = Vec::new();
 
-    complete_args.append(&mut args);
-
-    let has_double_dash = complete_args.iter().any(|x| x == "--");
+    let mut passed_forward_point: bool = false;
 
     // filter out the --no-capture args as it makes the output of the cargo test command unpredictable and messes with the parser
-    complete_args = complete_args.iter().filter_map(|x| if x != &"--nocapture" { Some(x.to_string()) } else { None } ).collect();
-    
-    if !has_double_dash {
-        complete_args.push("--".to_string())
-    }
+    let filter_list = ["--nocapture"];
 
-    complete_args.push("--color=always".to_string());
-    
-    println!("{:?}", complete_args);
+    args.into_iter().for_each(|x|
+        if passed_forward_point {
+            if !filter_list.contains(&x.as_str()) {
+                forward_args.push(x)
+            }
+        } else {
+            if x == "--" {
+                passed_forward_point = true;
+            } else {
+                consume_args.push(x);
+            }
+        }
+    );
+
     let cmd_result = Command::new("cargo")
         .arg("test")
-        .args(&complete_args)
+        .args(&forward_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output();
@@ -82,8 +88,10 @@ pub fn run() -> Result<(), RunError> {
         }
     };
 
-    if complete_args.contains(&"--help".to_string()) || complete_args.contains(&"-h".to_string()) {
-        help()
+    if forward_args.contains(&"--help".to_string()) || forward_args.contains(&"-h".to_string()) {
+        help();
+        println!("{}", output);
+        return Ok(())
     }
     
     match parse(output) {
