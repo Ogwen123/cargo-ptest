@@ -10,6 +10,7 @@ fn panic() {
 
 #[test]
 #[should_panic]
+#[ignore]
 fn should_panic_and_does() {
     assert_eq!(2, 1)
 }

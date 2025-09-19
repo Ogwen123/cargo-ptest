@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use regex::Regex;
 use crate::run::RunError;
 
@@ -6,6 +7,45 @@ macro_rules! parse_error {
     ($($args:tt)*) => {
         Err(ParseError { error: format!("ParseError: {}", format!($($args)*)) })
     };
+}
+
+macro_rules! map_parse_error {
+    ($($args:tt)*) => {
+        ParseError { error: format!("ParseError: {}", format!($($args)*)) }
+    };
+}
+
+#[derive(PartialEq, Clone)]
+enum Status {
+    Ok,
+    Failed,
+    Ignored
+}
+
+impl Display for Status {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Status::Ok => "Ok".to_string(),
+            Status::Failed => "Failed".to_string(),
+            Status::Ignored => "Ignored".to_string()
+        };
+
+        write!(f, "{}", value)
+    }
+}
+
+#[derive(Clone)]
+struct RawTest {
+    path: String,
+    status: Status,
+    note: Option<String>,
+    error_reason: Option<String>
+}
+
+impl Display for RawTest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RawTest {{\n    path: {}\n    status: {}\n    note: {:?}\n    error_reason: {:?}\n  }}", self.path, self.status, self.note, self.error_reason)
+    }
 }
 
 pub struct TestResult {
@@ -30,6 +70,66 @@ impl ParseError {
     }
 }
 
+fn get_next<'a>(iter: &mut dyn Iterator<Item=&'a str>) -> Option<&'a str>{
+    loop {
+        let next = iter.next()?;
+
+        if next.len() != 0 {
+            return Some(next)
+        }
+    }
+}
+
+// possible formats
+// test path ... ok|FAILED|ignored
+// test path - note ... ok|FAILED|ignored
+// notes are things like "should panic"
+fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
+    let split_test: Vec<&str> = test_string.split("...").collect::<Vec<&str>>();
+
+    let path_info = split_test[0];
+
+    let split_path: Vec<&str> = path_info
+        .split(" ")
+        .filter(|x| x.len() > 0)
+        .collect::<Vec<&str>>();
+
+    let path = split_path[1].to_string();
+
+    let mut note: Option<String> = None;
+    if path_info.contains("-") {
+        let mut buffer = String::new();
+        let mut found_dash: bool = false;
+        for i in split_path.into_iter() {
+            if found_dash {
+                buffer += i;
+                buffer += " ";
+            } else {
+                if i == "-" {
+                    found_dash = true
+                }
+            }
+        }
+        note = Some(buffer.trim().to_string());
+    }
+
+    let status = match split_test[1].trim() {
+        x if x.contains("ok") => Status::Ok,
+        x if x.contains("FAILED") => Status::Failed,
+        x if x.contains("ignored") => Status::Ignored,
+        _ => Status::Ok
+    };
+
+    Ok(
+        RawTest {
+            path,
+            status,
+            note,
+            error_reason: None
+        }
+    )
+}
+
 // possible endings - ok, FAILED, ignored
 
 // keep looping until we stop finding running x test messages
@@ -50,12 +150,20 @@ pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError
     let test_blocks_found = 0;
 
     loop {
-        let test_block_intro = lines.next().unwrap().trim();
+        let mut failed = 0;
+        let test_block_intro = match get_next(&mut lines) {
+            Some(res) => res,
+            None => break
+        };
+
+        println!("this is the res: {}", test_block_intro);
+
+
         let capture = match count_line_match.captures(test_block_intro) {
             Some(res) => res,
             None => {
                 if test_blocks_found == 0 {
-                    return parse_error!("could not find any tests in the input")
+                    return parse_error!("Could not find any tests in the output.")
                 } else {
                     break
                 }
@@ -68,8 +176,67 @@ pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError
             Ok(res) => res,
             Err(_) => return parse_error!("Could not convert count to an number, got: {}", count_str)
         };
-        
-    }
 
+        let mut raw_tests: Vec<RawTest> = Vec::new();
+
+        for _ in 0..count {
+            let test_string = get_next(&mut lines).unwrap();
+            let raw_test = build_raw_test(test_string).map_err(|x| return map_parse_error!("{}", x))?;
+
+            if raw_test.status == Status::Failed {
+                failed += 1;
+            }
+
+
+            raw_tests.push(raw_test)
+        }
+
+        if failed > 0 {
+            let mut add_to_buffer = false;
+            let mut buffer = String::new();
+            let mut name = String::new();
+            loop {
+                let line_option = get_next(&mut lines);
+
+                let line = match line_option {
+                    Some(res) => res,
+                    None => break
+                };
+
+                if line.trim().starts_with("----") {
+                    add_to_buffer = true;
+
+                    if &buffer.len() != &0 {
+                        // add error message to raw test
+                        for i in raw_tests.iter_mut() {
+                            if i.path == name {
+                                i.error_reason = Some(buffer.clone());
+                                break
+                            }
+                        }
+                    }
+                    buffer = String::new();
+
+                    name = line
+                        .replace("-", "")
+                        .split(" ")
+                        .filter(|x| x.len() != 0)
+                        .collect::<Vec<&str>>()[0]
+                        .to_string();
+
+                } else {
+                    if add_to_buffer {
+                        buffer += line;
+                        buffer += "\n";
+                    }
+                }
+            }
+        }
+
+        raw_tests.iter().for_each(|x| println!("{}", x));
+
+        let test_block_summary = get_next(&mut lines);
+    }
+    println!("stopped finding");
     Ok(tree)
 }
