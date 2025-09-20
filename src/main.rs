@@ -1,6 +1,7 @@
 mod run;
 mod parse;
 mod display;
+mod config;
 
 use crate::run::run;
 

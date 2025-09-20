@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use regex::Regex;
+use crate::config::Config;
 use crate::run::RunError;
 
 macro_rules! parse_error {
@@ -48,14 +49,14 @@ impl Display for RawTest {
     }
 }
 
-pub struct TestResult {
+pub struct TestLeaf {
     pub name: String,
     pub success: bool
 }
 
-pub struct ResultOption {
-    pub children: HashMap<String, ResultOption>,
-    pub result: TestResult
+pub struct TestBranch {
+    pub children: Option<HashMap<String, TestBranch>>,
+    pub result: Option<TestLeaf>
 }
 
 pub struct ParseError {
@@ -130,18 +131,24 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
     )
 }
 
+fn build_tree(raw_tests: Vec<RawTest>) -> Vec<TestBranch> {
+    let mut results: Vec<TestBranch> = Vec::new();
+
+    vec![TestBranch {children: None, result: None}]
+}
+
 // possible endings - ok, FAILED, ignored
 
 // keep looping until we stop finding running x test messages
 
-pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError> {
+pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBranch>, ParseError> {
     println!("{}", output);
     // regexes
     let count_line_match = Regex::new(r"running (?<count>[0-9]+) tests").unwrap();
     let test_run_match = Regex::new(r"running (?<count>.) tests").unwrap();
     let tests_summary_match = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
 
-    let mut tree: HashMap<String, ResultOption> = HashMap::new();
+    let mut tree: HashMap<String, TestBranch> = HashMap::new();
 
     let windows_safe = output.replace("\r", ""); // remove any carriage returns windows might be adding
 
@@ -191,12 +198,18 @@ pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError
             raw_tests.push(raw_test)
         }
 
+        // add error reasons to raw types
+        let mut failure_reasons_found = 0;
         if failed > 0 {
             let mut add_to_buffer = false;
             let mut buffer = String::new();
             let mut name = String::new();
             loop {
+                if failure_reasons_found == failed {
+                    break;
+                }
                 let line_option = get_next(&mut lines);
+                println!("got: {:?}", line_option);
 
                 let line = match line_option {
                     Some(res) => res,
@@ -211,6 +224,9 @@ pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError
                         for i in raw_tests.iter_mut() {
                             if i.path == name {
                                 i.error_reason = Some(buffer.clone());
+                                failure_reasons_found += 1;
+
+                                println!("added {} failure reason", failure_reasons_found);
                                 break
                             }
                         }
@@ -235,7 +251,8 @@ pub fn parse(output: String) -> Result<HashMap<String, ResultOption>, ParseError
 
         raw_tests.iter().for_each(|x| println!("{}", x));
 
-        let test_block_summary = get_next(&mut lines);
+        let test_block_summary = lines.next();
+        println!("{:?}", test_block_summary);
     }
     println!("stopped finding");
     Ok(tree)

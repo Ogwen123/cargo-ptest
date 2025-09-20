@@ -1,5 +1,6 @@
 use std::fmt::Formatter;
 use std::process::{Command, Stdio};
+use crate::config::config;
 use crate::display::display;
 use crate::parse::parse;
 
@@ -31,7 +32,7 @@ pub fn run() -> Result<(), RunError> {
 
     let unfiltered_args: Vec<String> = std::env::args().collect();
 
-    let mut args: Vec<String>;
+    let args: Vec<String>;
 
     // when running cargo ptest the args look like ["C:\\Users\\user\\.cargo\\bin\\cargo-ptest.exe", "ptest", ...]
     // when running cargo-ptest the args look like ["cargo-ptest"]
@@ -66,7 +67,14 @@ pub fn run() -> Result<(), RunError> {
             }
         }
     );
+    println!("{:?}", forward_args);
+    println!("{:?}", consume_args);
+    let config = match config(consume_args) {
+        Ok(res) => res,
+        Err(err) => return Err(RunError {error: err})
+    };
 
+    
     let cmd_result = Command::new("cargo")
         .arg("test")
         .args(&forward_args)
@@ -94,8 +102,8 @@ pub fn run() -> Result<(), RunError> {
         return Ok(())
     }
     
-    match parse(output) {
-        Ok(res) => display(res),
+    match parse(output, &config) {
+        Ok(res) => display(res, &config),
         Err(err) => return Err(err.to_run_error())
     }
     
