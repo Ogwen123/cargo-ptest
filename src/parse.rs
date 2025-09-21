@@ -55,8 +55,16 @@ pub struct TestLeaf {
 }
 
 pub struct TestBranch {
+    pub is_result: bool,
+    pub name: String,
     pub children: Option<HashMap<String, TestBranch>>,
     pub result: Option<TestLeaf>
+}
+
+impl TestBranch {
+    fn has(&self, name: String) {
+        
+    }
 }
 
 pub struct ParseError {
@@ -81,6 +89,17 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item=&'a str>) -> Option<&'a str>{
     }
 }
 
+fn update_raw_test_error(raw_tests: &mut Vec<RawTest>, buffer: &String, name: &String) {
+    println!("adding error to raw test");
+    // add error message to raw test
+    for i in raw_tests {
+        if i.path == *name {
+            i.error_reason = Some(buffer.clone());
+            break
+        }
+    }
+}
+
 // possible formats
 // test path ... ok|FAILED|ignored
 // test path - note ... ok|FAILED|ignored
@@ -101,7 +120,7 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
     if path_info.contains("-") {
         let mut buffer = String::new();
         let mut found_dash: bool = false;
-        for i in split_path.into_iter() {
+        for i in split_path {
             if found_dash {
                 buffer += i;
                 buffer += " ";
@@ -131,30 +150,49 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
     )
 }
 
-fn build_tree(raw_tests: Vec<RawTest>) -> Vec<TestBranch> {
-    let mut results: Vec<TestBranch> = Vec::new();
+fn build_tree(raw_tests: Vec<RawTest>) -> TestBranch {
+    let mut results: TestBranch;
 
-    vec![TestBranch {children: None, result: None}]
+    // set base test branch
+    
+    
+    
+    for test in raw_tests {
+        let path_elements = test.path
+            .split("::")
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>();
+        
+        let mut looking_at: Option<&mut TestBranch> = None;
+
+        for (index, elem) in path_elements.iter().enumerate() {
+            
+        }
+    }
+
+    TestBranch {is_result: false, name: String::new(), children: None, result: None}
 }
 
 // possible endings - ok, FAILED, ignored
 
 // keep looping until we stop finding running x test messages
 
-pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBranch>, ParseError> {
+pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseError> {
     println!("{}", output);
     // regexes
-    let count_line_match = Regex::new(r"running (?<count>[0-9]+) tests").unwrap();
+    let count_line_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
     let test_run_match = Regex::new(r"running (?<count>.) tests").unwrap();
     let tests_summary_match = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
 
-    let mut tree: HashMap<String, TestBranch> = HashMap::new();
+    let mut trees: Vec<TestBranch> = Vec::new();
 
     let windows_safe = output.replace("\r", ""); // remove any carriage returns windows might be adding
 
     let mut lines  = windows_safe.split("\n").filter(|x| x.len() != 0);
 
-    let test_blocks_found = 0;
+    let mut test_blocks_found = 0;
+
+
 
     loop {
         let mut failed = 0;
@@ -163,7 +201,7 @@ pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBran
             None => break
         };
 
-        println!("this is the res: {}", test_block_intro);
+        println!("this is the res: {:?}", test_block_intro);
 
 
         let capture = match count_line_match.captures(test_block_intro) {
@@ -177,6 +215,7 @@ pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBran
             }
         };
 
+        test_blocks_found += 1;
         let count_str = &capture["count"];
 
         let count: usize = match count_str.parse::<usize>() {
@@ -199,17 +238,14 @@ pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBran
         }
 
         // add error reasons to raw types
-        let mut failure_reasons_found = 0;
+        let mut in_failure_block = false;
+
         if failed > 0 {
             let mut add_to_buffer = false;
             let mut buffer = String::new();
             let mut name = String::new();
             loop {
-                if failure_reasons_found == failed {
-                    break;
-                }
                 let line_option = get_next(&mut lines);
-                println!("got: {:?}", line_option);
 
                 let line = match line_option {
                     Some(res) => res,
@@ -220,18 +256,8 @@ pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBran
                     add_to_buffer = true;
 
                     if &buffer.len() != &0 {
-                        // add error message to raw test
-                        for i in raw_tests.iter_mut() {
-                            if i.path == name {
-                                i.error_reason = Some(buffer.clone());
-                                failure_reasons_found += 1;
-
-                                println!("added {} failure reason", failure_reasons_found);
-                                break
-                            }
-                        }
+                        update_raw_test_error(&mut raw_tests, &buffer, &name);
                     }
-                    buffer = String::new();
 
                     name = line
                         .replace("-", "")
@@ -240,12 +266,26 @@ pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBran
                         .collect::<Vec<&str>>()[0]
                         .to_string();
 
-                } else {
+                    buffer = String::new();
+                } else if line.trim().starts_with("failures:") {
+                    if in_failure_block {
+                        update_raw_test_error(&mut raw_tests, &buffer, &name);
+                        break;
+                    } else {
+                        in_failure_block = true;
+                    }
+                }
+                else {
                     if add_to_buffer {
                         buffer += line;
                         buffer += "\n";
                     }
                 }
+            }
+
+            // skip through the list of failed tests after the seconds failures:
+            for _ in 0..failed {
+                let _ = get_next(&mut lines);
             }
         }
 
@@ -253,7 +293,8 @@ pub fn parse(output: String, config: &Config) -> Result<HashMap<String, TestBran
 
         let test_block_summary = lines.next();
         println!("{:?}", test_block_summary);
+        trees.push(build_tree(raw_tests))
     }
     println!("stopped finding");
-    Ok(tree)
+    Ok(trees)
 }

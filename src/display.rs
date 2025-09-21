@@ -13,6 +13,6 @@ where T: ToString {
     return String::from("test")
 }
 
-pub fn display(tree: HashMap<String, TestBranch>, config: &Config) {
+pub fn display(tree: Vec<TestBranch>, config: &Config) {
     
 }

@@ -6,7 +6,7 @@ use crate::parse::parse;
 
 macro_rules! run_error {
     ($($arg:tt)*) => {
-        Err(RunError {error: format!($($arg)*)})
+        Err(RunError {error: format!("Run Error: {}", format!($($arg)*))})
     };
 }
 
@@ -16,7 +16,7 @@ pub struct RunError {
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Run Error: {}", self.error)
+        write!(f, "{}", self.error)
     }
 }
 
