@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
-use regex::Regex;
 use crate::config::Config;
 use crate::run::RunError;
+use regex::Regex;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 
 macro_rules! parse_error {
     ($($args:tt)*) => {
@@ -45,7 +45,11 @@ struct RawTest {
 
 impl Display for RawTest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RawTest {{\n    path: {}\n    status: {}\n    note: {:?}\n    error_reason: {:?}\n  }}", self.path, self.status, self.note, self.error_reason)
+        write!(
+            f,
+            "RawTest {{\n    path: {}\n    status: {}\n    note: {:?}\n    error_reason: {:?}\n  }}",
+            self.path, self.status, self.note, self.error_reason
+        )
     }
 }
 
@@ -62,9 +66,7 @@ pub struct TestBranch {
 }
 
 impl TestBranch {
-    fn has(&self, name: String) {
-        
-    }
+    fn has(&self, name: String) {}
 }
 
 pub struct ParseError {
@@ -79,7 +81,7 @@ impl ParseError {
     }
 }
 
-fn get_next<'a>(iter: &mut dyn Iterator<Item=&'a str>) -> Option<&'a str>{
+fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
     loop {
         let next = iter.next()?;
 
@@ -98,6 +100,64 @@ fn update_raw_test_error(raw_tests: &mut Vec<RawTest>, buffer: &String, name: &S
             break
         }
     }
+}
+
+fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>> {
+    let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
+    let running_message = Regex::new(r"Running (unittests )?(?<path>[\w\/.-]+) \((?<binpath>[\w\/.-]+)\)").unwrap();
+
+    let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
+    let windows_safe_err = stderr.replace("\r", "");
+
+    let mut err_lines = windows_safe_err.split("\n").filter(|x| {
+        return if x.trim().starts_with("Running ") || x.trim().starts_with("Doc-tests") {
+            true
+        } else {
+            false
+        };
+    });
+    println!("huh");
+    let mut lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
+
+    println!("error lines: {:?}", err_lines.clone().collect::<Vec<&str>>());
+
+    let mut blocks: HashMap<String, Vec<String>> = HashMap::new();
+    let mut buffer: Vec<String> = Vec::new();
+
+    lines.for_each(|x| {
+        if block_beginning.is_match(&x) {
+            let next = match get_next(&mut err_lines) {
+                Some(res) => res,
+                None => return
+            };
+
+            if buffer.len() > 0 {
+                let capture = match running_message.captures(buffer[0].as_str()) {
+                    Some(res) => res,
+                    None => {
+                        println!("{}", buffer[0]);
+                        println!("could not find path in beginning message");
+                        return
+                    }
+                };
+
+                let path = &capture["path"];
+                if path.len() == 0 {
+                    println!("found nothing for path");
+                    return
+                }
+
+                let _ = blocks.insert(path.to_string(), buffer[1..].to_vec());
+            }
+
+            buffer = Vec::new();
+            buffer.push(next.trim().to_string());
+            buffer.push(x.trim().to_string())
+        } else {
+            if buffer.len() > 0 { buffer.push(x.trim().to_string()) }
+        }
+    });
+    blocks
 }
 
 // possible formats
@@ -140,60 +200,80 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
         _ => Status::Ok
     };
 
-    Ok(
-        RawTest {
-            path,
-            status,
-            note,
-            error_reason: None
-        }
-    )
+    Ok(RawTest {
+        path,
+        status,
+        note,
+        error_reason: None
+    })
 }
 
-fn build_tree(raw_tests: Vec<RawTest>) -> TestBranch {
-    let mut results: TestBranch;
+fn build_tree(raw_tests: Vec<RawTest>) -> Vec<TestBranch> {
+    let mut results: Vec<TestBranch>;
 
     // set base test branch
-    
-    
-    
+
     for test in raw_tests {
-        let path_elements = test.path
+        let path_elements = test
+            .path
             .split("::")
             .map(|x| x.to_string())
             .collect::<Vec<String>>();
-        
+
         let mut looking_at: Option<&mut TestBranch> = None;
 
-        for (index, elem) in path_elements.iter().enumerate() {
-            
-        }
+        for (index, elem) in path_elements.iter().enumerate() {}
     }
 
-    TestBranch {is_result: false, name: String::new(), children: None, result: None}
+    vec![TestBranch {
+        is_result: false,
+        name: String::new(),
+        children: None,
+        result: None
+    }]
 }
 
 // possible endings - ok, FAILED, ignored
 
-// keep looping until we stop finding running x test messages
-
-pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseError> {
-    println!("{}", output);
-    // regexes
+pub fn parse(
+    stdout: String,
+    stderr: String,
+    config: &Config
+) -> Result<Vec<TestBranch>, ParseError> {
+    println!("{}", stdout);
+    // regex
+    let running_line_match =
+        Regex::new(r"Running (unittests ?)(?<path>\w+) \((?<binpath>\w+)\)").unwrap();
     let count_line_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
     let test_run_match = Regex::new(r"running (?<count>.) tests").unwrap();
     let tests_summary_match = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
 
     let mut trees: Vec<TestBranch> = Vec::new();
 
-    let windows_safe = output.replace("\r", ""); // remove any carriage returns windows might be adding
-
-    let mut lines  = windows_safe.split("\n").filter(|x| x.len() != 0);
+    let windows_safe = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
+    let mut lines = windows_safe.split("\n").filter(|x| x.len() != 0);
 
     let mut test_blocks_found = 0;
 
-
-
+    // loop {
+    //     linesc += 1;
+    //     let line = match get_next(&mut lines) {
+    //         Some(res) => res,
+    //         None => {
+    //             println!("breaking after {} lines", linesc);
+    //             break;
+    //         }
+    //     };
+    //     println!("found line: {}", line);
+    //     // skip lines until we get to the end of the build messages
+    //     if line.trim().starts_with("Finished") {
+    //         println!("found the finished line");
+    //         break;
+    //     }
+    // }
+    for (key, value) in merge_outputs(stdout, stderr) {
+        println!("{}, {:?}", key, value);
+    }
     loop {
         let mut failed = 0;
         let test_block_intro = match get_next(&mut lines) {
@@ -203,8 +283,7 @@ pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseEr
 
         println!("this is the res: {:?}", test_block_intro);
 
-
-        let capture = match count_line_match.captures(test_block_intro) {
+        let capture = match running_line_match.captures(test_block_intro) {
             Some(res) => res,
             None => {
                 if test_blocks_found == 0 {
@@ -220,7 +299,9 @@ pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseEr
 
         let count: usize = match count_str.parse::<usize>() {
             Ok(res) => res,
-            Err(_) => return parse_error!("Could not convert count to an number, got: {}", count_str)
+            Err(_) => {
+                return parse_error!("Could not convert count to an number, got: {}", count_str)
+            }
         };
 
         let mut raw_tests: Vec<RawTest> = Vec::new();
@@ -232,7 +313,6 @@ pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseEr
             if raw_test.status == Status::Failed {
                 failed += 1;
             }
-
 
             raw_tests.push(raw_test)
         }
@@ -270,12 +350,11 @@ pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseEr
                 } else if line.trim().starts_with("failures:") {
                     if in_failure_block {
                         update_raw_test_error(&mut raw_tests, &buffer, &name);
-                        break;
+                        break
                     } else {
                         in_failure_block = true;
                     }
-                }
-                else {
+                } else {
                     if add_to_buffer {
                         buffer += line;
                         buffer += "\n";
@@ -293,7 +372,9 @@ pub fn parse(output: String, config: &Config) -> Result<Vec<TestBranch>, ParseEr
 
         let test_block_summary = lines.next();
         println!("{:?}", test_block_summary);
-        trees.push(build_tree(raw_tests))
+        build_tree(raw_tests)
+            .into_iter()
+            .for_each(|x| trees.push(x));
     }
     println!("stopped finding");
     Ok(trees)

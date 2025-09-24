@@ -1,8 +1,8 @@
-use std::fmt::Formatter;
-use std::process::{Command, Stdio};
 use crate::config::config;
 use crate::display::display;
 use crate::parse::parse;
+use std::fmt::Formatter;
+use std::process::{Command, Stdio};
 
 macro_rules! run_error {
     ($($arg:tt)*) => {
@@ -29,7 +29,6 @@ fn help() {
 }
 
 pub fn run() -> Result<(), RunError> {
-
     let unfiltered_args: Vec<String> = std::env::args().collect();
 
     let args: Vec<String>;
@@ -42,7 +41,7 @@ pub fn run() -> Result<(), RunError> {
     } else if unfiltered_args[1] == "ptest" {
         args = unfiltered_args[2..].to_vec();
     } else {
-        return run_error!("how did you manage to see this error")
+        return run_error!("how did you manage to see this error");
     }
 
     //let mut complete_args: Vec<String> = vec!["--tests".to_string(), "--no-fail-fast".to_string()]; // --no-fail-fast makes sure all the unit, integration and docs tests are run
@@ -52,9 +51,18 @@ pub fn run() -> Result<(), RunError> {
     let mut passed_forward_point: bool = false;
 
     // filter out the --no-capture args as it makes the output of the cargo test command unpredictable and messes with the parser
-    let filter_list = ["--nocapture"];
+    // verbose also messes up parsing so it gets filtered out
+    // remove any color so I can set color=never to avoid having to deal with ansi codes all over the place
+    let filter_list = [
+        "--nocapture",
+        "-v",
+        "--verbose",
+        "--color=always",
+        "--color=auto",
+        "--color=never"
+    ];
 
-    args.into_iter().for_each(|x|
+    args.into_iter().for_each(|x| {
         if passed_forward_point {
             if !filter_list.contains(&x.as_str()) {
                 forward_args.push(x)
@@ -66,46 +74,52 @@ pub fn run() -> Result<(), RunError> {
                 consume_args.push(x);
             }
         }
-    );
+    });
+
+    forward_args.push("--color=never".to_string());
+
     println!("{:?}", forward_args);
     println!("{:?}", consume_args);
+
     let config = match config(consume_args) {
         Ok(res) => res,
-        Err(err) => return Err(RunError {error: err})
+        Err(err) => return Err(RunError { error: err })
     };
 
-    
     let cmd_result = Command::new("cargo")
         .arg("test")
         .args(&forward_args)
+        .env("CARGO_TERM_COLOR", "always")
+        .env("FORCE_COLOR", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output();
 
     let cmd = match cmd_result {
         Ok(res) => res,
-        Err(e) => {
-            return run_error!("'cargo test' failed: {}", e.to_string())
-        }
+        Err(e) => return run_error!("'cargo test' failed: {}", e.to_string())
     };
 
-    let output = match String::from_utf8(cmd.stdout) {
+    let stdout = match String::from_utf8(cmd.stdout) {
         Ok(res) => res,
-        Err(_) => {
-            return run_error!("failed to parse raw command output")
-        }
+        Err(_) => return run_error!("failed to parse stdout from utf8")
+    };
+
+    let stderr = match String::from_utf8(cmd.stderr) {
+        Ok(res) => res,
+        Err(_) => return run_error!("failed to parse stderr from utf8")
     };
 
     if forward_args.contains(&"--help".to_string()) || forward_args.contains(&"-h".to_string()) {
         help();
-        println!("{}", output);
-        return Ok(())
+        println!("{}", stdout);
+        return Ok(());
     }
-    
-    match parse(output, &config) {
+
+    match parse(stdout, stderr, &config) {
         Ok(res) => display(res, &config),
         Err(err) => return Err(err.to_run_error())
     }
-    
+
     Ok(())
 }
