@@ -1,12 +1,10 @@
 pub struct Config {
-    pub no_color: bool
+    pub no_color: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config {
-            no_color: false
-        }
+        Config { no_color: false }
     }
 }
 
@@ -18,7 +16,7 @@ pub fn config(args: Vec<String>) -> Result<Config, String> {
 
     for i in args.iter() {
         if args_to_find == 0 && !VALID_ARGS.contains(&i.clone().as_str()) {
-            return Err(format!("Invalid argument {}", i))
+            return Err(format!("Invalid argument {}", i));
         }
 
         if i == "--no-color" {

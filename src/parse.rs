@@ -20,7 +20,7 @@ macro_rules! map_parse_error {
 enum Status {
     Ok,
     Failed,
-    Ignored
+    Ignored,
 }
 
 impl Display for Status {
@@ -28,7 +28,7 @@ impl Display for Status {
         let value = match self {
             Status::Ok => "Ok".to_string(),
             Status::Failed => "Failed".to_string(),
-            Status::Ignored => "Ignored".to_string()
+            Status::Ignored => "Ignored".to_string(),
         };
 
         write!(f, "{}", value)
@@ -40,7 +40,7 @@ struct RawTest {
     path: String,
     status: Status,
     note: Option<String>,
-    error_reason: Option<String>
+    error_reason: Option<String>,
 }
 
 impl Display for RawTest {
@@ -55,14 +55,14 @@ impl Display for RawTest {
 
 pub struct TestLeaf {
     pub name: String,
-    pub success: bool
+    pub success: bool,
 }
 
 pub struct TestBranch {
     pub is_result: bool,
     pub name: String,
     pub children: Option<HashMap<String, TestBranch>>,
-    pub result: Option<TestLeaf>
+    pub result: Option<TestLeaf>,
 }
 
 impl TestBranch {
@@ -70,13 +70,13 @@ impl TestBranch {
 }
 
 pub struct ParseError {
-    pub error: String
+    pub error: String,
 }
 
 impl ParseError {
     pub fn to_run_error(&self) -> RunError {
         RunError {
-            error: self.error.clone()
+            error: self.error.clone(),
         }
     }
 }
@@ -86,7 +86,7 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
         let next = iter.next()?;
 
         if next.len() != 0 {
-            return Some(next)
+            return Some(next);
         }
     }
 }
@@ -97,14 +97,15 @@ fn update_raw_test_error(raw_tests: &mut Vec<RawTest>, buffer: &String, name: &S
     for i in raw_tests {
         if i.path == *name {
             i.error_reason = Some(buffer.clone());
-            break
+            break;
         }
     }
 }
 
 fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
-    let running_message = Regex::new(r"Running (unittests )?(?<path>[\w\/.-]+) \((?<binpath>[\w\/.-]+)\)").unwrap();
+    let running_message =
+        Regex::new(r"Running (unittests )?(?<path>[\w\/.-]+) \((?<binpath>[\w\/.-]+)\)").unwrap();
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
     let windows_safe_err = stderr.replace("\r", "");
@@ -116,10 +117,8 @@ fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>>
             false
         };
     });
-    println!("huh");
-    let mut lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
 
-    println!("error lines: {:?}", err_lines.clone().collect::<Vec<&str>>());
+    let mut lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
 
     let mut blocks: HashMap<String, Vec<String>> = HashMap::new();
     let mut buffer: Vec<String> = Vec::new();
@@ -128,23 +127,24 @@ fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>>
         if block_beginning.is_match(&x) {
             let next = match get_next(&mut err_lines) {
                 Some(res) => res,
-                None => return
+                None => return,
             };
 
+            // when the start of a block is found push the buffer with the previous block to blocks and start the new block
             if buffer.len() > 0 {
                 let capture = match running_message.captures(buffer[0].as_str()) {
                     Some(res) => res,
                     None => {
                         println!("{}", buffer[0]);
                         println!("could not find path in beginning message");
-                        return
+                        return;
                     }
                 };
 
                 let path = &capture["path"];
                 if path.len() == 0 {
                     println!("found nothing for path");
-                    return
+                    return;
                 }
 
                 let _ = blocks.insert(path.to_string(), buffer[1..].to_vec());
@@ -152,9 +152,11 @@ fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>>
 
             buffer = Vec::new();
             buffer.push(next.trim().to_string());
-            buffer.push(x.trim().to_string())
+            buffer.push(x.trim().to_string());
         } else {
-            if buffer.len() > 0 { buffer.push(x.trim().to_string()) }
+            if buffer.len() > 0 {
+                buffer.push(x.trim().to_string());
+            }
         }
     });
     blocks
@@ -197,14 +199,14 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
         x if x.contains("ok") => Status::Ok,
         x if x.contains("FAILED") => Status::Failed,
         x if x.contains("ignored") => Status::Ignored,
-        _ => Status::Ok
+        _ => Status::Ok,
     };
 
     Ok(RawTest {
         path,
         status,
         note,
-        error_reason: None
+        error_reason: None,
     })
 }
 
@@ -229,7 +231,7 @@ fn build_tree(raw_tests: Vec<RawTest>) -> Vec<TestBranch> {
         is_result: false,
         name: String::new(),
         children: None,
-        result: None
+        result: None,
     }]
 }
 
@@ -238,7 +240,7 @@ fn build_tree(raw_tests: Vec<RawTest>) -> Vec<TestBranch> {
 pub fn parse(
     stdout: String,
     stderr: String,
-    config: &Config
+    config: &Config,
 ) -> Result<Vec<TestBranch>, ParseError> {
     println!("{}", stdout);
     // regex
@@ -272,13 +274,13 @@ pub fn parse(
     //     }
     // }
     for (key, value) in merge_outputs(stdout, stderr) {
-        println!("{}, {:?}", key, value);
+        println!("{}, {:?}\n\n", key, value);
     }
     loop {
         let mut failed = 0;
         let test_block_intro = match get_next(&mut lines) {
             Some(res) => res,
-            None => break
+            None => break,
         };
 
         println!("this is the res: {:?}", test_block_intro);
@@ -287,9 +289,9 @@ pub fn parse(
             Some(res) => res,
             None => {
                 if test_blocks_found == 0 {
-                    return parse_error!("Could not find any tests in the output.")
+                    return parse_error!("Could not find any tests in the output.");
                 } else {
-                    break
+                    break;
                 }
             }
         };
@@ -300,7 +302,7 @@ pub fn parse(
         let count: usize = match count_str.parse::<usize>() {
             Ok(res) => res,
             Err(_) => {
-                return parse_error!("Could not convert count to an number, got: {}", count_str)
+                return parse_error!("Could not convert count to an number, got: {}", count_str);
             }
         };
 
@@ -308,7 +310,8 @@ pub fn parse(
 
         for _ in 0..count {
             let test_string = get_next(&mut lines).unwrap();
-            let raw_test = build_raw_test(test_string).map_err(|x| return map_parse_error!("{}", x))?;
+            let raw_test =
+                build_raw_test(test_string).map_err(|x| return map_parse_error!("{}", x))?;
 
             if raw_test.status == Status::Failed {
                 failed += 1;
@@ -329,7 +332,7 @@ pub fn parse(
 
                 let line = match line_option {
                     Some(res) => res,
-                    None => break
+                    None => break,
                 };
 
                 if line.trim().starts_with("----") {
@@ -350,7 +353,7 @@ pub fn parse(
                 } else if line.trim().starts_with("failures:") {
                     if in_failure_block {
                         update_raw_test_error(&mut raw_tests, &buffer, &name);
-                        break
+                        break;
                     } else {
                         in_failure_block = true;
                     }

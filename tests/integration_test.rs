@@ -1,4 +1,4 @@
-use cargo_ptest::display::{colour, Colour};
+use cargo_ptest::display::{Colour, colour};
 
 #[test]
 fn colour_test_green() {

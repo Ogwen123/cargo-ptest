@@ -11,7 +11,7 @@ macro_rules! run_error {
 }
 
 pub struct RunError {
-    pub error: String
+    pub error: String,
 }
 
 impl std::fmt::Display for RunError {
@@ -59,7 +59,7 @@ pub fn run() -> Result<(), RunError> {
         "--verbose",
         "--color=always",
         "--color=auto",
-        "--color=never"
+        "--color=never",
     ];
 
     args.into_iter().for_each(|x| {
@@ -83,7 +83,7 @@ pub fn run() -> Result<(), RunError> {
 
     let config = match config(consume_args) {
         Ok(res) => res,
-        Err(err) => return Err(RunError { error: err })
+        Err(err) => return Err(RunError { error: err }),
     };
 
     let cmd_result = Command::new("cargo")
@@ -97,17 +97,17 @@ pub fn run() -> Result<(), RunError> {
 
     let cmd = match cmd_result {
         Ok(res) => res,
-        Err(e) => return run_error!("'cargo test' failed: {}", e.to_string())
+        Err(e) => return run_error!("'cargo test' failed: {}", e.to_string()),
     };
 
     let stdout = match String::from_utf8(cmd.stdout) {
         Ok(res) => res,
-        Err(_) => return run_error!("failed to parse stdout from utf8")
+        Err(_) => return run_error!("failed to parse stdout from utf8"),
     };
 
     let stderr = match String::from_utf8(cmd.stderr) {
         Ok(res) => res,
-        Err(_) => return run_error!("failed to parse stderr from utf8")
+        Err(_) => return run_error!("failed to parse stderr from utf8"),
     };
 
     if forward_args.contains(&"--help".to_string()) || forward_args.contains(&"-h".to_string()) {
@@ -118,7 +118,7 @@ pub fn run() -> Result<(), RunError> {
 
     match parse(stdout, stderr, &config) {
         Ok(res) => display(res, &config),
-        Err(err) => return Err(err.to_run_error())
+        Err(err) => return Err(err.to_run_error()),
     }
 
     Ok(())

@@ -1,14 +1,14 @@
-mod run;
-mod parse;
-mod display;
 mod config;
+mod display;
+mod parse;
+mod run;
 
 use crate::run::run;
 
 fn main() {
     match run() {
-        Ok(_) => {},
-        Err(err) => println!("{}", err)
+        Ok(_) => {}
+        Err(err) => println!("{}", err),
     }
 }
 
