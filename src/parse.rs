@@ -42,22 +42,37 @@ enum TestType {
     Tests,
 }
 
+impl Display for TestType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                TestType::Unit => "Unit",
+                TestType::Doc => "Doc",
+                TestType::Tests => "Tests",
+            }
+        )
+    }
+}
+
 #[derive(Clone)]
-struct Path {
+struct RawTestGroup {
     test_type: TestType,
     components: Vec<String>,
     crate_name: String,
     test_data: Vec<String>,
 }
 
-impl Path {
-    fn new(stderr_line: String, test_data: Vec<String>) -> Result<Path, ParseError> {
+impl RawTestGroup {
+    fn new(stderr_line: String, test_data: Vec<String>) -> Result<RawTestGroup, ParseError> {
         // the path is the crate name found in target/debug/deps/crate_name-xxxxxxxxxxxxxxxx
         // plus the file path found in Running unittests file/path.rs
+        // if the test type is Testing then the crate name is the previous unittests crate name
 
         if stderr_line.contains("Doc-tests") {
             let crate_name = stderr_line.split(" ").collect::<Vec<&str>>()[1].to_string();
-            Ok(Path {
+            Ok(RawTestGroup {
                 test_type: TestType::Doc,
                 components: Vec::new(),
                 crate_name,
@@ -68,14 +83,14 @@ impl Path {
 
             let capture = match stderr_message.captures(stderr_line.as_str()) {
                 Some(res) => res,
-                None => return parse_error!("Could not extract data from running line"),
+                None => return parse_error!("Could not extract data from running line."),
             };
 
             let path = &capture["path"];
             let crate_name = &capture["crate_name"];
 
             if path.len() == 0 || crate_name.len() == 0 {
-                return parse_error!("Could not extract information from running line.");
+                return parse_error!("No data found in running line.");
             }
 
             let mut test_type: TestType;
@@ -86,7 +101,7 @@ impl Path {
                 test_type = TestType::Tests
             }
 
-            Ok(Path {
+            Ok(RawTestGroup {
                 test_type,
                 components: path
                     .split("/")
@@ -107,14 +122,14 @@ impl Path {
     }
 }
 
-impl Display for Path {
+impl Display for RawTestGroup {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.components.join("/"))
     }
 }
 
 #[derive(Clone)]
-struct RawTest {
+struct ParsedTest {
     path: String,
     status: Status,
     note: Option<String>,
@@ -122,7 +137,23 @@ struct RawTest {
     ignore_reason: Option<String>,
 }
 
-impl Display for RawTest {
+impl ParsedTest {
+    fn new(test_line: String) -> ParsedTest {
+        ParsedTest {
+            path: String::new(),
+            status: Status::Ok,
+            note: None,
+            error_reason: None,
+            ignore_reason: None
+        }
+    }
+
+    fn add_error_reason(&mut self, error_reason: String) {
+        self.error_reason = Some(error_reason)
+    }
+}
+
+impl Display for ParsedTest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -171,7 +202,7 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
     }
 }
 
-fn update_raw_test_error(raw_tests: &mut Vec<RawTest>, buffer: &String, name: &String) {
+fn update_raw_test_error(raw_tests: &mut Vec<ParsedTest>, buffer: &String, name: &String) {
     println!("adding error to raw test");
     // add error message to raw test
     for i in raw_tests {
@@ -182,7 +213,7 @@ fn update_raw_test_error(raw_tests: &mut Vec<RawTest>, buffer: &String, name: &S
     }
 }
 
-fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<Path>, ParseError> {
+fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
@@ -198,7 +229,7 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<Path>, ParseError
 
     let mut lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
 
-    let mut blocks: Vec<Path> = Vec::new();
+    let mut blocks: Vec<RawTestGroup> = Vec::new();
     let mut buffer: Vec<String> = Vec::new();
 
     for x in lines {
@@ -210,7 +241,9 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<Path>, ParseError
 
             // when the start of a block is found push the buffer with the previous block to blocks and start the new block
             if buffer.len() > 0 {
-                blocks.push(Path::new(buffer[0].clone(), buffer[1..].to_vec()).map_err(|x| x)?)
+                blocks.push(
+                    RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec()).map_err(|x| x)?,
+                )
             }
 
             buffer = Vec::new();
@@ -222,6 +255,7 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<Path>, ParseError
             }
         }
     }
+    println!("blocks: {}", blocks.len());
     Ok(blocks)
 }
 
@@ -229,7 +263,7 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<Path>, ParseError
 // test path ... ok|FAILED|ignored
 // test path - note ... ok|FAILED|ignored
 // notes are things like "should panic"
-fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
+fn build_raw_test(test_string: &str) -> Result<ParsedTest, String> {
     let split_test: Vec<&str> = test_string.split("...").collect::<Vec<&str>>();
 
     let path_info = split_test[0];
@@ -273,7 +307,7 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
         ignore_reason = Some(status_string.split(", ").collect::<Vec<&str>>()[1].to_string())
     }
 
-    Ok(RawTest {
+    Ok(ParsedTest {
         path,
         status,
         note,
@@ -282,7 +316,7 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
     })
 }
 
-fn build_tree(raw_tests: Vec<RawTest>) -> Vec<TestBranch> {
+fn build_tree(raw_tests: Vec<ParsedTest>) -> Vec<TestBranch> {
     let mut results: Vec<TestBranch>;
 
     // set base test branch
@@ -346,7 +380,12 @@ pub fn parse(
     //     }
     // }
     for path in merge_outputs(stdout, stderr).unwrap() {
-        println!("{}\n{:?}\n\n\n", path.full_path(), path.test_data);
+        println!(
+            "{}\n{}\n{:?}\n\n\n",
+            path.full_path(),
+            path.test_type,
+            path.test_data
+        );
     }
     loop {
         let mut failed = 0;
@@ -378,7 +417,7 @@ pub fn parse(
             }
         };
 
-        let mut raw_tests: Vec<RawTest> = Vec::new();
+        let mut raw_tests: Vec<ParsedTest> = Vec::new();
 
         for _ in 0..count {
             let test_string = get_next(&mut lines).unwrap();
