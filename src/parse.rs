@@ -36,11 +36,90 @@ impl Display for Status {
 }
 
 #[derive(Clone)]
+enum TestType {
+    Unit,
+    Doc,
+    Tests,
+}
+
+#[derive(Clone)]
+struct Path {
+    test_type: TestType,
+    components: Vec<String>,
+    crate_name: String,
+    test_data: Vec<String>,
+}
+
+impl Path {
+    fn new(stderr_line: String, test_data: Vec<String>) -> Result<Path, ParseError> {
+        // the path is the crate name found in target/debug/deps/crate_name-xxxxxxxxxxxxxxxx
+        // plus the file path found in Running unittests file/path.rs
+
+        if stderr_line.contains("Doc-tests") {
+            let crate_name = stderr_line.split(" ").collect::<Vec<&str>>()[1].to_string();
+            Ok(Path {
+                test_type: TestType::Doc,
+                components: Vec::new(),
+                crate_name,
+                test_data,
+            })
+        } else {
+            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w\/.-]+) \(target\/debug\/deps\/(?<crate_name>[\w\/.-]+)-(?<hash>[\w]+)\)").unwrap();
+
+            let capture = match stderr_message.captures(stderr_line.as_str()) {
+                Some(res) => res,
+                None => return parse_error!("Could not extract data from running line"),
+            };
+
+            let path = &capture["path"];
+            let crate_name = &capture["crate_name"];
+
+            if path.len() == 0 || crate_name.len() == 0 {
+                return parse_error!("Could not extract information from running line.");
+            }
+
+            let mut test_type: TestType;
+
+            if stderr_line.contains("unittest") {
+                test_type = TestType::Unit
+            } else {
+                test_type = TestType::Tests
+            }
+
+            Ok(Path {
+                test_type,
+                components: path
+                    .split("/")
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>(),
+                crate_name: crate_name.to_string(),
+                test_data,
+            })
+        }
+    }
+
+    fn joined_components(&self) -> String {
+        self.components.join("/")
+    }
+
+    fn full_path(&self) -> String {
+        self.crate_name.clone() + "/" + self.joined_components().as_str()
+    }
+}
+
+impl Display for Path {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.components.join("/"))
+    }
+}
+
+#[derive(Clone)]
 struct RawTest {
     path: String,
     status: Status,
     note: Option<String>,
     error_reason: Option<String>,
+    ignore_reason: Option<String>,
 }
 
 impl Display for RawTest {
@@ -69,6 +148,7 @@ impl TestBranch {
     fn has(&self, name: String) {}
 }
 
+#[derive(Debug)]
 pub struct ParseError {
     pub error: String,
 }
@@ -102,10 +182,8 @@ fn update_raw_test_error(raw_tests: &mut Vec<RawTest>, buffer: &String, name: &S
     }
 }
 
-fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>> {
+fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<Path>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
-    let running_message =
-        Regex::new(r"Running (unittests )?(?<path>[\w\/.-]+) \((?<binpath>[\w\/.-]+)\)").unwrap();
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
     let windows_safe_err = stderr.replace("\r", "");
@@ -120,34 +198,19 @@ fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>>
 
     let mut lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
 
-    let mut blocks: HashMap<String, Vec<String>> = HashMap::new();
+    let mut blocks: Vec<Path> = Vec::new();
     let mut buffer: Vec<String> = Vec::new();
 
-    lines.for_each(|x| {
+    for x in lines {
         if block_beginning.is_match(&x) {
             let next = match get_next(&mut err_lines) {
                 Some(res) => res,
-                None => return,
+                None => continue,
             };
 
             // when the start of a block is found push the buffer with the previous block to blocks and start the new block
             if buffer.len() > 0 {
-                let capture = match running_message.captures(buffer[0].as_str()) {
-                    Some(res) => res,
-                    None => {
-                        println!("{}", buffer[0]);
-                        println!("could not find path in beginning message");
-                        return;
-                    }
-                };
-
-                let path = &capture["path"];
-                if path.len() == 0 {
-                    println!("found nothing for path");
-                    return;
-                }
-
-                let _ = blocks.insert(path.to_string(), buffer[1..].to_vec());
+                blocks.push(Path::new(buffer[0].clone(), buffer[1..].to_vec()).map_err(|x| x)?)
             }
 
             buffer = Vec::new();
@@ -158,8 +221,8 @@ fn merge_outputs(stdout: String, stderr: String) -> HashMap<String, Vec<String>>
                 buffer.push(x.trim().to_string());
             }
         }
-    });
-    blocks
+    }
+    Ok(blocks)
 }
 
 // possible formats
@@ -195,18 +258,27 @@ fn build_raw_test(test_string: &str) -> Result<RawTest, String> {
         note = Some(buffer.trim().to_string());
     }
 
-    let status = match split_test[1].trim() {
+    let status_string = split_test[1].trim();
+
+    let status = match &status_string {
         x if x.contains("ok") => Status::Ok,
         x if x.contains("FAILED") => Status::Failed,
         x if x.contains("ignored") => Status::Ignored,
         _ => Status::Ok,
     };
 
+    let mut ignore_reason: Option<String> = None;
+
+    if status == Status::Ignored && status_string.contains(", ") {
+        ignore_reason = Some(status_string.split(", ").collect::<Vec<&str>>()[1].to_string())
+    }
+
     Ok(RawTest {
         path,
         status,
         note,
         error_reason: None,
+        ignore_reason,
     })
 }
 
@@ -273,8 +345,8 @@ pub fn parse(
     //         break;
     //     }
     // }
-    for (key, value) in merge_outputs(stdout, stderr) {
-        println!("{}, {:?}\n\n", key, value);
+    for path in merge_outputs(stdout, stderr).unwrap() {
+        println!("{}\n{:?}\n\n\n", path.full_path(), path.test_data);
     }
     loop {
         let mut failed = 0;
@@ -365,7 +437,7 @@ pub fn parse(
                 }
             }
 
-            // skip through the list of failed tests after the seconds failures:
+            // skip through the list of failed tests after the second 'failures':
             for _ in 0..failed {
                 let _ = get_next(&mut lines);
             }
