@@ -1,5 +1,5 @@
 use crate::config::config;
-use crate::display::display;
+use crate::display::Display;
 use crate::parse::parse;
 use std::fmt::Formatter;
 use std::process::{Command, Stdio};
@@ -116,10 +116,12 @@ pub fn run() -> Result<(), RunError> {
         return Ok(());
     }
 
-    match parse(stdout, stderr, &config) {
-        Ok(res) => display(res, &config),
+    let parsed = match parse(stdout, stderr, &config) {
+        Ok(res) => res,
         Err(err) => return Err(err.to_run_error()),
-    }
+    };
+
+    let display = Display::new(parsed);
 
     Ok(())
 }

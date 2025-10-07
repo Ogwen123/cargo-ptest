@@ -12,3 +12,6 @@ cargo ptest --no-color -- --tests --no-fail-fast -- --color=always
 would run `cargo test --tests --no-fail-fast -- --color=always` and the --no-color argument would be consumed by ptest.
 
 --no-capture get filtered out of the arguments as it interferes with parsing the command output as it provided unpredictable output.
+
+## TODO
+ - [ ] RawTestGroup needs logic specifically for Doc-tests which can have multiple running x test blocks per Running Doc-tests block

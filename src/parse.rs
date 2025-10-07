@@ -59,7 +59,7 @@ impl Display for TestType {
 #[derive(Clone)]
 struct RawTestGroup {
     test_type: TestType,
-    components: Vec<String>,
+    path: Vec<String>,
     crate_name: String,
     test_data: Vec<String>,
 }
@@ -74,7 +74,7 @@ impl RawTestGroup {
             let crate_name = stderr_line.split(" ").collect::<Vec<&str>>()[1].to_string();
             Ok(RawTestGroup {
                 test_type: TestType::Doc,
-                components: Vec::new(),
+                path: Vec::new(),
                 crate_name,
                 test_data,
             })
@@ -103,7 +103,7 @@ impl RawTestGroup {
 
             Ok(RawTestGroup {
                 test_type,
-                components: path
+                path: path
                     .split("/")
                     .map(|x| x.to_string())
                     .collect::<Vec<String>>(),
@@ -114,7 +114,7 @@ impl RawTestGroup {
     }
 
     fn joined_components(&self) -> String {
-        self.components.join("/")
+        self.path.join("/")
     }
 
     fn full_path(&self) -> String {
@@ -124,12 +124,13 @@ impl RawTestGroup {
 
 impl Display for RawTestGroup {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.components.join("/"))
+        write!(f, "{}", self.path.join("/"))
     }
 }
 
 #[derive(Clone)]
 struct ParsedTest {
+    parsed: bool,
     path: String,
     status: Status,
     note: Option<String>,
@@ -139,12 +140,57 @@ struct ParsedTest {
 
 impl ParsedTest {
     fn new(test_line: String) -> ParsedTest {
+        // write regex to validate test line, path, status, note, etc
+        let split_test: Vec<&str> = test_line.split("...").collect::<Vec<&str>>();
+
+        let path_info = split_test[0];
+
+        let split_path: Vec<&str> = path_info
+            .split(" ")
+            .filter(|x| x.len() > 0)
+            .collect::<Vec<&str>>();
+
+        let path = split_path[1].to_string();
+
+        let mut note: Option<String> = None;
+        if path_info.contains("-") {
+            let mut buffer = String::new();
+            let mut found_dash: bool = false;
+            for i in split_path {
+                if found_dash {
+                    buffer += i;
+                    buffer += " ";
+                } else {
+                    if i == "-" {
+                        found_dash = true
+                    }
+                }
+            }
+            note = Some(buffer.trim().to_string());
+        }
+
+        let status_string = split_test[1].trim();
+
+        let status = match &status_string {
+            x if x.contains("ok") => Status::Ok,
+            x if x.contains("FAILED") => Status::Failed,
+            x if x.contains("ignored") => Status::Ignored,
+            _ => Status::Ok,
+        };
+
+        let mut ignore_reason: Option<String> = None;
+
+        if status == Status::Ignored && status_string.contains(", ") {
+            ignore_reason = Some(status_string.split(", ").collect::<Vec<&str>>()[1].to_string())
+        }
+
         ParsedTest {
-            path: String::new(),
-            status: Status::Ok,
-            note: None,
+            parsed: true,
+            path,
+            status,
+            note,
             error_reason: None,
-            ignore_reason: None
+            ignore_reason,
         }
     }
 
@@ -163,20 +209,21 @@ impl Display for ParsedTest {
     }
 }
 
-pub struct TestLeaf {
-    pub name: String,
-    pub success: bool,
+pub struct Summary {
+    status: Status,
+    passed: u32,
+    failed: u32,
+    ignored: u32,
+    measured: u32,
+    filtered: u32,
+    time: f64
 }
 
-pub struct TestBranch {
-    pub is_result: bool,
-    pub name: String,
-    pub children: Option<HashMap<String, TestBranch>>,
-    pub result: Option<TestLeaf>,
-}
-
-impl TestBranch {
-    fn has(&self, name: String) {}
+pub struct ParsedTestGroup {
+    crate_name: String,
+    path: String,
+    tests: Vec<ParsedTest>,
+    summary: Summary
 }
 
 #[derive(Debug)]
@@ -259,127 +306,27 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
     Ok(blocks)
 }
 
-// possible formats
-// test path ... ok|FAILED|ignored
-// test path - note ... ok|FAILED|ignored
-// notes are things like "should panic"
-fn build_raw_test(test_string: &str) -> Result<ParsedTest, String> {
-    let split_test: Vec<&str> = test_string.split("...").collect::<Vec<&str>>();
-
-    let path_info = split_test[0];
-
-    let split_path: Vec<&str> = path_info
-        .split(" ")
-        .filter(|x| x.len() > 0)
-        .collect::<Vec<&str>>();
-
-    let path = split_path[1].to_string();
-
-    let mut note: Option<String> = None;
-    if path_info.contains("-") {
-        let mut buffer = String::new();
-        let mut found_dash: bool = false;
-        for i in split_path {
-            if found_dash {
-                buffer += i;
-                buffer += " ";
-            } else {
-                if i == "-" {
-                    found_dash = true
-                }
-            }
-        }
-        note = Some(buffer.trim().to_string());
-    }
-
-    let status_string = split_test[1].trim();
-
-    let status = match &status_string {
-        x if x.contains("ok") => Status::Ok,
-        x if x.contains("FAILED") => Status::Failed,
-        x if x.contains("ignored") => Status::Ignored,
-        _ => Status::Ok,
-    };
-
-    let mut ignore_reason: Option<String> = None;
-
-    if status == Status::Ignored && status_string.contains(", ") {
-        ignore_reason = Some(status_string.split(", ").collect::<Vec<&str>>()[1].to_string())
-    }
-
-    Ok(ParsedTest {
-        path,
-        status,
-        note,
-        error_reason: None,
-        ignore_reason,
-    })
-}
-
-fn build_tree(raw_tests: Vec<ParsedTest>) -> Vec<TestBranch> {
-    let mut results: Vec<TestBranch>;
-
-    // set base test branch
-
-    for test in raw_tests {
-        let path_elements = test
-            .path
-            .split("::")
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>();
-
-        let mut looking_at: Option<&mut TestBranch> = None;
-
-        for (index, elem) in path_elements.iter().enumerate() {}
-    }
-
-    vec![TestBranch {
-        is_result: false,
-        name: String::new(),
-        children: None,
-        result: None,
-    }]
-}
-
 // possible endings - ok, FAILED, ignored
 
 pub fn parse(
     stdout: String,
     stderr: String,
     config: &Config,
-) -> Result<Vec<TestBranch>, ParseError> {
+) -> Result<Vec<ParsedTestGroup>, ParseError> {
     println!("{}", stdout);
     // regex
     let running_line_match =
         Regex::new(r"Running (unittests ?)(?<path>\w+) \((?<binpath>\w+)\)").unwrap();
-    let count_line_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
+    let test_block_start = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
     let test_run_match = Regex::new(r"running (?<count>.) tests").unwrap();
     let tests_summary_match = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
-
-    let mut trees: Vec<TestBranch> = Vec::new();
-
+    
     let windows_safe = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
     let mut lines = windows_safe.split("\n").filter(|x| x.len() != 0);
 
     let mut test_blocks_found = 0;
 
-    // loop {
-    //     linesc += 1;
-    //     let line = match get_next(&mut lines) {
-    //         Some(res) => res,
-    //         None => {
-    //             println!("breaking after {} lines", linesc);
-    //             break;
-    //         }
-    //     };
-    //     println!("found line: {}", line);
-    //     // skip lines until we get to the end of the build messages
-    //     if line.trim().starts_with("Finished") {
-    //         println!("found the finished line");
-    //         break;
-    //     }
-    // }
-    for path in merge_outputs(stdout, stderr).unwrap() {
+    for path in merge_outputs(stdout.clone(), stderr.clone()).unwrap() {
         println!(
             "{}\n{}\n{:?}\n\n\n",
             path.full_path(),
@@ -387,109 +334,112 @@ pub fn parse(
             path.test_data
         );
     }
-    loop {
+
+    let groups = merge_outputs(stdout, stderr).map_err(|x| x)?;
+
+    for group in groups {
         let mut failed = 0;
-        let test_block_intro = match get_next(&mut lines) {
-            Some(res) => res,
-            None => break,
-        };
 
-        println!("this is the res: {:?}", test_block_intro);
+        let mut line_iter = group.test_data.iter().map(|x| x.as_str()).into_iter();
 
-        let capture = match running_line_match.captures(test_block_intro) {
-            Some(res) => res,
-            None => {
-                if test_blocks_found == 0 {
-                    return parse_error!("Could not find any tests in the output.");
-                } else {
+        loop {
+            // get the number of tests in a test block
+            let test_block_intro = match get_next(&mut lines) {
+                Some(res) => res,
+                None => break,
+            };
+
+            let capture = match running_line_match.captures(test_block_intro) {
+                Some(res) => res,
+                None => {
                     break;
                 }
-            }
-        };
+            };
+            let count_str = &capture["count"];
 
-        test_blocks_found += 1;
-        let count_str = &capture["count"];
+            let count: usize = match count_str.parse::<usize>() {
+                Ok(res) => res,
+                Err(_) => {
+                    return parse_error!(
+                        "Could not convert the captured number from a test block, got: {}",
+                        count_str
+                    );
+                }
+            };
 
-        let count: usize = match count_str.parse::<usize>() {
-            Ok(res) => res,
-            Err(_) => {
-                return parse_error!("Could not convert count to an number, got: {}", count_str);
-            }
-        };
-
-        let mut raw_tests: Vec<ParsedTest> = Vec::new();
-
-        for _ in 0..count {
-            let test_string = get_next(&mut lines).unwrap();
-            let raw_test =
-                build_raw_test(test_string).map_err(|x| return map_parse_error!("{}", x))?;
-
-            if raw_test.status == Status::Failed {
-                failed += 1;
-            }
-
-            raw_tests.push(raw_test)
-        }
-
-        // add error reasons to raw types
-        let mut in_failure_block = false;
-
-        if failed > 0 {
-            let mut add_to_buffer = false;
-            let mut buffer = String::new();
-            let mut name = String::new();
-            loop {
-                let line_option = get_next(&mut lines);
-
-                let line = match line_option {
+            let mut parsed_tests: Vec<ParsedTest> = Vec::new();
+            // parse each test line
+            for _ in 0..count {
+                let line = match get_next(&mut line_iter) {
                     Some(res) => res,
                     None => break,
                 };
+                let parsed_test = ParsedTest::new(line.to_string());
+                if parsed_test.status == Status::Failed {
+                    failed += 1
+                }
+                parsed_tests.push(parsed_test);
+            }
 
-                if line.trim().starts_with("----") {
-                    add_to_buffer = true;
+            // add error reasons to failed tests
+            let mut in_failure_block = false;
 
-                    if &buffer.len() != &0 {
-                        update_raw_test_error(&mut raw_tests, &buffer, &name);
-                    }
+            if failed > 0 {
+                let mut add_to_buffer = false;
+                let mut buffer = String::new();
+                let mut name = String::new();
+                let failure_title = Regex::new(r"---- (?<path>[\w:_]+) (?<channel>\w+) ----").unwrap();
+                loop {
+                    let line_option = get_next(&mut lines);
 
-                    name = line
-                        .replace("-", "")
-                        .split(" ")
-                        .filter(|x| x.len() != 0)
-                        .collect::<Vec<&str>>()[0]
-                        .to_string();
+                    let line = match line_option {
+                        Some(res) => res,
+                        None => break,
+                    }.trim();
 
-                    buffer = String::new();
-                } else if line.trim().starts_with("failures:") {
-                    if in_failure_block {
-                        update_raw_test_error(&mut raw_tests, &buffer, &name);
-                        break;
+                    if failure_title.is_match(line) {
+                        add_to_buffer = true;
+
+                        if buffer.len() != 0 {
+                            for i in &mut parsed_tests {
+                                if i.path == name {
+                                    i.add_error_reason(buffer.clone())
+                                }
+                            }
+                        }
+
+                        name = match failure_title.captures(line) {
+                            Some(res) => res,
+                            None => break
+                        }["path"].to_string();
+
+                        buffer = String::new();
+                    } else if line.starts_with("failures:") { // catches the second "failures:"
+                        if in_failure_block {
+                            for i in &mut parsed_tests {
+                                if i.path == name {
+                                    i.add_error_reason(buffer.clone())
+                                }
+                            }
+                        } else {
+                            in_failure_block = true;
+                        }
                     } else {
-                        in_failure_block = true;
-                    }
-                } else {
-                    if add_to_buffer {
-                        buffer += line;
-                        buffer += "\n";
+                        if add_to_buffer {
+                            buffer += line;
+                            buffer += "\n";
+                        }
                     }
                 }
-            }
 
-            // skip through the list of failed tests after the second 'failures':
-            for _ in 0..failed {
-                let _ = get_next(&mut lines);
+                // skip through the list of failed tests after the second "failures:"
+                for _ in 0..failed {
+                    let _ = get_next(&mut lines);
+                }
             }
         }
-
-        raw_tests.iter().for_each(|x| println!("{}", x));
-
-        let test_block_summary = lines.next();
-        println!("{:?}", test_block_summary);
-        build_tree(raw_tests)
-            .into_iter()
-            .for_each(|x| trees.push(x));
     }
+
     println!("stopped finding");
-    Ok(trees)
+    Ok(Vec::new())
 }
