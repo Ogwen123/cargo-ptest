@@ -1,7 +1,6 @@
 use crate::config::Config;
 use crate::run::RunError;
 use regex::Regex;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 macro_rules! parse_error {
@@ -59,27 +58,26 @@ impl Display for TestType {
 #[derive(Clone)]
 struct RawTestGroup {
     test_type: TestType,
-    path: Vec<String>,
+    file_path: Vec<String>,
     crate_name: String,
     test_data: Vec<String>,
 }
 
 impl RawTestGroup {
-    fn new(stderr_line: String, test_data: Vec<String>) -> Result<RawTestGroup, ParseError> {
+    fn new(stderr_line: String, test_data: Vec<String>, is_doc_test: bool) -> Result<RawTestGroup, ParseError> {
         // the path is the crate name found in target/debug/deps/crate_name-xxxxxxxxxxxxxxxx
         // plus the file path found in Running unittests file/path.rs
         // if the test type is Testing then the crate name is the previous unittests crate name
 
-        if stderr_line.contains("Doc-tests") {
-            let crate_name = stderr_line.split(" ").collect::<Vec<&str>>()[1].to_string();
+        if is_doc_test {
             Ok(RawTestGroup {
                 test_type: TestType::Doc,
-                path: Vec::new(),
-                crate_name,
+                file_path: Vec::new(),
+                crate_name: "Doc-tests".to_string(),
                 test_data,
             })
         } else {
-            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w\/.-]+) \(target\/debug\/deps\/(?<crate_name>[\w\/.-]+)-(?<hash>[\w]+)\)").unwrap();
+            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w/.-]+) \(target/debug/deps/(?<crate_name>[\w/.-]+)-(?<hash>[\w]+)\)").unwrap();
 
             let capture = match stderr_message.captures(stderr_line.as_str()) {
                 Some(res) => res,
@@ -103,7 +101,7 @@ impl RawTestGroup {
 
             Ok(RawTestGroup {
                 test_type,
-                path: path
+                file_path: path
                     .split("/")
                     .map(|x| x.to_string())
                     .collect::<Vec<String>>(),
@@ -114,7 +112,7 @@ impl RawTestGroup {
     }
 
     fn joined_components(&self) -> String {
-        self.path.join("/")
+        self.file_path.join("/")
     }
 
     fn full_path(&self) -> String {
@@ -124,14 +122,14 @@ impl RawTestGroup {
 
 impl Display for RawTestGroup {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path.join("/"))
+        write!(f, "{}", self.file_path.join("/"))
     }
 }
 
 #[derive(Clone)]
 struct ParsedTest {
     parsed: bool,
-    path: String,
+    module_path: String,
     status: Status,
     note: Option<String>,
     error_reason: Option<String>,
@@ -141,6 +139,7 @@ struct ParsedTest {
 impl ParsedTest {
     fn new(test_line: String) -> ParsedTest {
         // write regex to validate test line, path, status, note, etc
+
         let split_test: Vec<&str> = test_line.split("...").collect::<Vec<&str>>();
 
         let path_info = split_test[0];
@@ -186,7 +185,7 @@ impl ParsedTest {
 
         ParsedTest {
             parsed: true,
-            path,
+            module_path: path,
             status,
             note,
             error_reason: None,
@@ -204,7 +203,7 @@ impl Display for ParsedTest {
         write!(
             f,
             "RawTest {{\n    path: {}\n    status: {}\n    note: {:?}\n    error_reason: {:?}\n  }}",
-            self.path, self.status, self.note, self.error_reason
+            self.module_path, self.status, self.note, self.error_reason
         )
     }
 }
@@ -216,14 +215,43 @@ pub struct Summary {
     ignored: u32,
     measured: u32,
     filtered: u32,
-    time: f64
+    time: f64,
+}
+
+impl Summary {
+    fn new(summary_line: &str) -> Result<Summary, ParseError> {
+        let tests_summary_line = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
+
+        if !tests_summary_line.is_match(summary_line) {
+            return parse_error!("Data could not be extracted from provided summary line, got \"{}\"", summary_line)
+        }
+
+        let capture = match tests_summary_line.captures(summary_line) {
+            Some(res) => res,
+            None => return parse_error!("Data could not be extracted from provided summary line, got \"{}\"", summary_line)
+        };
+
+        Ok(Summary {
+            status: match &capture["overall_result"] {
+                "ok" => Status::Ok,
+                "FAILED" => Status::Failed,
+                _ => return parse_error!("Status extracted from summary line could not be recognised, got {}", &capture["overall_result"])
+            },
+            passed: 1,
+            failed: 1,
+            ignored: 0,
+            measured: 0,
+            filtered: 0,
+            time: 0.0,
+        })
+    }
 }
 
 pub struct ParsedTestGroup {
     crate_name: String,
-    path: String,
+    file_path: Vec<String>,
     tests: Vec<ParsedTest>,
-    summary: Summary
+    summary: Summary,
 }
 
 #[derive(Debug)]
@@ -253,7 +281,7 @@ fn update_raw_test_error(raw_tests: &mut Vec<ParsedTest>, buffer: &String, name:
     println!("adding error to raw test");
     // add error message to raw test
     for i in raw_tests {
-        if i.path == *name {
+        if i.module_path == *name {
             i.error_reason = Some(buffer.clone());
             break;
         }
@@ -262,6 +290,7 @@ fn update_raw_test_error(raw_tests: &mut Vec<ParsedTest>, buffer: &String, name:
 
 fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
+    let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
     let windows_safe_err = stderr.replace("\r", "");
@@ -278,8 +307,13 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
 
     let mut blocks: Vec<RawTestGroup> = Vec::new();
     let mut buffer: Vec<String> = Vec::new();
+    let mut reached_doc_tests = false;
 
     for x in lines {
+        if reached_doc_tests {
+            buffer.push(x.trim().to_string());
+        }
+
         if block_beginning.is_match(&x) {
             let next = match get_next(&mut err_lines) {
                 Some(res) => res,
@@ -289,19 +323,22 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
             // when the start of a block is found push the buffer with the previous block to blocks and start the new block
             if buffer.len() > 0 {
                 blocks.push(
-                    RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec()).map_err(|x| x)?,
+                    RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), false).map_err(|x| x)?,
                 )
             }
 
             buffer = Vec::new();
             buffer.push(next.trim().to_string());
             buffer.push(x.trim().to_string());
+        } else if doc_test_line.is_match(x) {
+            reached_doc_tests = true;
         } else {
             if buffer.len() > 0 {
                 buffer.push(x.trim().to_string());
             }
         }
     }
+    blocks.push(RawTestGroup::new(String::new(), buffer, true).map_err(|x| x)?);
     println!("blocks: {}", blocks.len());
     Ok(blocks)
 }
@@ -318,13 +355,6 @@ pub fn parse(
     let running_line_match =
         Regex::new(r"Running (unittests ?)(?<path>\w+) \((?<binpath>\w+)\)").unwrap();
     let test_block_start = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
-    let test_run_match = Regex::new(r"running (?<count>.) tests").unwrap();
-    let tests_summary_match = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
-    
-    let windows_safe = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
-    let mut lines = windows_safe.split("\n").filter(|x| x.len() != 0);
-
-    let mut test_blocks_found = 0;
 
     for path in merge_outputs(stdout.clone(), stderr.clone()).unwrap() {
         println!(
@@ -335,25 +365,24 @@ pub fn parse(
         );
     }
 
+    let mut parsed_groups: Vec<ParsedTestGroup> = Vec::new();
     let groups = merge_outputs(stdout, stderr).map_err(|x| x)?;
 
     for group in groups {
         let mut failed = 0;
 
         let mut line_iter = group.test_data.iter().map(|x| x.as_str()).into_iter();
-
+        let mut parsed_tests: Vec<ParsedTest> = Vec::new();
         loop {
             // get the number of tests in a test block
-            let test_block_intro = match get_next(&mut lines) {
+            let test_block_intro = match get_next(&mut line_iter) {
                 Some(res) => res,
                 None => break,
             };
 
             let capture = match running_line_match.captures(test_block_intro) {
                 Some(res) => res,
-                None => {
-                    break;
-                }
+                None => break
             };
             let count_str = &capture["count"];
 
@@ -367,7 +396,6 @@ pub fn parse(
                 }
             };
 
-            let mut parsed_tests: Vec<ParsedTest> = Vec::new();
             // parse each test line
             for _ in 0..count {
                 let line = match get_next(&mut line_iter) {
@@ -388,21 +416,23 @@ pub fn parse(
                 let mut add_to_buffer = false;
                 let mut buffer = String::new();
                 let mut name = String::new();
-                let failure_title = Regex::new(r"---- (?<path>[\w:_]+) (?<channel>\w+) ----").unwrap();
+                let failure_title =
+                    Regex::new(r"---- (?<path>[\w:_]+) (?<channel>\w+) ----").unwrap();
                 loop {
-                    let line_option = get_next(&mut lines);
+                    let line_option = get_next(&mut line_iter);
 
                     let line = match line_option {
                         Some(res) => res,
                         None => break,
-                    }.trim();
+                    }
+                    .trim();
 
                     if failure_title.is_match(line) {
                         add_to_buffer = true;
 
                         if buffer.len() != 0 {
                             for i in &mut parsed_tests {
-                                if i.path == name {
+                                if i.module_path == name {
                                     i.add_error_reason(buffer.clone())
                                 }
                             }
@@ -410,14 +440,16 @@ pub fn parse(
 
                         name = match failure_title.captures(line) {
                             Some(res) => res,
-                            None => break
-                        }["path"].to_string();
+                            None => break,
+                        }["path"]
+                            .to_string();
 
                         buffer = String::new();
-                    } else if line.starts_with("failures:") { // catches the second "failures:"
+                    } else if line.starts_with("failures:") {
+                        // catches the second "failures:"
                         if in_failure_block {
                             for i in &mut parsed_tests {
-                                if i.path == name {
+                                if i.module_path == name {
                                     i.add_error_reason(buffer.clone())
                                 }
                             }
@@ -434,12 +466,25 @@ pub fn parse(
 
                 // skip through the list of failed tests after the second "failures:"
                 for _ in 0..failed {
-                    let _ = get_next(&mut lines);
+                    let _ = get_next(&mut line_iter);
                 }
             }
         }
-    }
 
+        let summary = match get_next(&mut line_iter) {
+            Some(res) => res,
+            None => {
+                return parse_error!("Could not extract summary data for {}", group.full_path());
+            }
+        };
+
+        parsed_groups.push(ParsedTestGroup {
+            crate_name: group.crate_name.clone(),
+            file_path: group.file_path.clone(),
+            tests: parsed_tests,
+            summary: Summary::new(summary).map_err(|x| x)?,
+        })
+    }
     println!("stopped finding");
-    Ok(Vec::new())
+    Ok(parsed_groups)
 }
