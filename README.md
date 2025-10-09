@@ -14,4 +14,6 @@ would run `cargo test --tests --no-fail-fast -- --color=always` and the --no-col
 --no-capture get filtered out of the arguments as it interferes with parsing the command output as it provided unpredictable output.
 
 ## TODO
- - [ ] RawTestGroup needs logic specifically for Doc-tests which can have multiple running x test blocks per Running Doc-tests block
+ - [x] merge_outputs needs logic specifically for Doc-tests which can have multiple running x test blocks per Running Doc-tests block
+ - [x] test new merge_outputs function
+ - [ ] wrong line being passed in to Summary::new()

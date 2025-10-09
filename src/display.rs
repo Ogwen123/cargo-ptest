@@ -13,13 +13,13 @@ pub enum DisplayType {
 }
 
 pub struct Display {
-    test_groups: Vec<ParsedTestGroup>
+    test_groups: Vec<ParsedTestGroup>,
 }
 
 impl Display {
     pub fn new(parsed: Vec<ParsedTestGroup>) -> Display {
         Display {
-            test_groups: Vec::new()
+            test_groups: Vec::new(),
         }
     }
     pub fn colour(c: Colour, s: &str) -> String {

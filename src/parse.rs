@@ -64,7 +64,11 @@ struct RawTestGroup {
 }
 
 impl RawTestGroup {
-    fn new(stderr_line: String, test_data: Vec<String>, is_doc_test: bool) -> Result<RawTestGroup, ParseError> {
+    fn new(
+        stderr_line: String,
+        test_data: Vec<String>,
+        is_doc_test: bool,
+    ) -> Result<RawTestGroup, ParseError> {
         // the path is the crate name found in target/debug/deps/crate_name-xxxxxxxxxxxxxxxx
         // plus the file path found in Running unittests file/path.rs
         // if the test type is Testing then the crate name is the previous unittests crate name
@@ -81,7 +85,7 @@ impl RawTestGroup {
 
             let capture = match stderr_message.captures(stderr_line.as_str()) {
                 Some(res) => res,
-                None => return parse_error!("Could not extract data from running line."),
+                None => return parse_error!("Could not extract data from running line, got \"{}\"", stderr_line),
             };
 
             let path = &capture["path"];
@@ -220,29 +224,61 @@ pub struct Summary {
 
 impl Summary {
     fn new(summary_line: &str) -> Result<Summary, ParseError> {
-        let tests_summary_line = Regex::new(r"test result: (?<overall_result>.)\.. (?<passed>.)\. passed; (?<failed>.)\. failed; (?<ignored>.)\. ignored; (?<measured>.)\. measured; (?<filtered_out>.)\. filtered out; finished in (?<finish_time>.)\.s ").unwrap();
+        let tests_summary_line = Regex::new(r"test result: (?<overall_result>\w+)\. (?<passed>\d+) passed; (?<failed>\d+) failed; (?<ignored>\d+) ignored; (?<measured>\d+) measured; (?<filtered_out>\d+) filtered out; finished in (?<finish_time>[\d.]+)s").unwrap();
 
         if !tests_summary_line.is_match(summary_line) {
-            return parse_error!("Data could not be extracted from provided summary line, got \"{}\"", summary_line)
+            return parse_error!(
+                "Data could not be extracted from provided summary line, got \"{}\"",
+                summary_line
+            );
         }
 
         let capture = match tests_summary_line.captures(summary_line) {
             Some(res) => res,
-            None => return parse_error!("Data could not be extracted from provided summary line, got \"{}\"", summary_line)
+            None => {
+                return parse_error!(
+                    "Data could not be extracted from provided summary line, got \"{}\"",
+                    summary_line
+                );
+            }
         };
 
+        // if a value cannot be parsed from the regex then just use 0 rather than erroring
         Ok(Summary {
             status: match &capture["overall_result"] {
                 "ok" => Status::Ok,
                 "FAILED" => Status::Failed,
-                _ => return parse_error!("Status extracted from summary line could not be recognised, got {}", &capture["overall_result"])
+                _ => {
+                    return parse_error!(
+                        "Status extracted from summary line could not be recognised, got {}",
+                        &capture["overall_result"]
+                    );
+                }
             },
-            passed: 1,
-            failed: 1,
-            ignored: 0,
-            measured: 0,
-            filtered: 0,
-            time: 0.0,
+            passed: match &capture["passed"].parse::<u32>() {
+                Ok(res) => res.clone(),
+                Err(_) => 0,
+            },
+            failed: match &capture["failed"].parse::<u32>() {
+                Ok(res) => res.clone(),
+                Err(_) => 0,
+            },
+            ignored: match &capture["ignored"].parse::<u32>() {
+                Ok(res) => res.clone(),
+                Err(_) => 0,
+            },
+            measured: match &capture["measured"].parse::<u32>() {
+                Ok(res) => res.clone(),
+                Err(_) => 0,
+            },
+            filtered: match &capture["filtered_out"].parse::<u32>() {
+                Ok(res) => res.clone(),
+                Err(_) => 0,
+            },
+            time: match &capture["finish_time"].parse::<f64>() {
+                Ok(res) => res.clone(),
+                Err(_) => 0.0,
+            },
         })
     }
 }
@@ -290,6 +326,7 @@ fn update_raw_test_error(raw_tests: &mut Vec<ParsedTest>, buffer: &String, name:
 
 fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
+    let doc_test_beginning = Regex::new(r"Doc-tests (?<crate>[\w-]+)").unwrap();
     let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
@@ -312,6 +349,7 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
     for x in lines {
         if reached_doc_tests {
             buffer.push(x.trim().to_string());
+            continue
         }
 
         if block_beginning.is_match(&x) {
@@ -323,11 +361,19 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
             // when the start of a block is found push the buffer with the previous block to blocks and start the new block
             if buffer.len() > 0 {
                 blocks.push(
-                    RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), false).map_err(|x| x)?,
+                    RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), false)
+                        .map_err(|x| x)?,
                 )
             }
 
             buffer = Vec::new();
+            
+            if doc_test_beginning.is_match(next) {
+                reached_doc_tests = true;
+                buffer.push(x.trim().to_string());
+                continue
+            }
+            
             buffer.push(next.trim().to_string());
             buffer.push(x.trim().to_string());
         } else if doc_test_line.is_match(x) {
@@ -356,7 +402,7 @@ pub fn parse(
         Regex::new(r"Running (unittests ?)(?<path>\w+) \((?<binpath>\w+)\)").unwrap();
     let test_block_start = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
 
-    for path in merge_outputs(stdout.clone(), stderr.clone()).unwrap() {
+    for path in merge_outputs(stdout.clone(), stderr.clone()).map_err(|x| x)? {
         println!(
             "{}\n{}\n{:?}\n\n\n",
             path.full_path(),
@@ -382,7 +428,7 @@ pub fn parse(
 
             let capture = match running_line_match.captures(test_block_intro) {
                 Some(res) => res,
-                None => break
+                None => break,
             };
             let count_str = &capture["count"];
 

@@ -16,7 +16,7 @@ pub struct RunError {
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.error)
+        write!(f, "\x1b[31m{}\x1b[0m", self.error)
     }
 }
 
