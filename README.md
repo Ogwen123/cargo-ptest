@@ -16,4 +16,5 @@ would run `cargo test --tests --no-fail-fast -- --color=always` and the --no-col
 ## TODO
  - [x] merge_outputs needs logic specifically for Doc-tests which can have multiple running x test blocks per Running Doc-tests block
  - [x] test new merge_outputs function
- - [ ] wrong line being passed in to Summary::new()
+ - [x] wrong line being passed in to Summary::new()
+ - [ ] add custom parsing for when the group is a Doc group

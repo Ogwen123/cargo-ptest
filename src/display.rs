@@ -23,7 +23,7 @@ impl Display {
         }
     }
     pub fn colour(c: Colour, s: &str) -> String {
-        String::new()
+        String::from("test")
     }
     fn tree(&self) -> String {
         String::new()
