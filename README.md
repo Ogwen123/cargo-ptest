@@ -18,3 +18,5 @@ would run `cargo test --tests --no-fail-fast -- --color=always` and the --no-col
  - [x] test new merge_outputs function
  - [x] wrong line being passed in to Summary::new()
  - [ ] add custom parsing for when the group is a Doc group
+   - [ ] add custom parsing in ParsedTest for a doc test
+ - [ ] rewrite ParseTest::new() to use regex capture groups

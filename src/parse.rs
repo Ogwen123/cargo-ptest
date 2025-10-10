@@ -338,7 +338,6 @@ fn update_raw_test_error(raw_tests: &mut Vec<ParsedTest>, buffer: &String, name:
 fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
     let doc_test_beginning = Regex::new(r"Doc-tests (?<crate>[\w-]+)").unwrap();
-    let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
     let windows_safe_err = stderr.replace("\r", "");
@@ -387,8 +386,6 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
 
             buffer.push(next.trim().to_string());
             buffer.push(x.trim().to_string());
-        } else if doc_test_line.is_match(x) {
-            reached_doc_tests = true;
         } else {
             if buffer.len() > 0 {
                 buffer.push(x.trim().to_string());
@@ -412,6 +409,7 @@ pub fn parse(
     let test_group_start =
         Regex::new(r"Running (unittests ?)(?<path>\w+) \((?<binpath>\w+)\)").unwrap();
     let test_block_start_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
+    let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
 
     for path in merge_outputs(stdout.clone(), stderr.clone()).map_err(|x| x)? {
         println!("{}\n{:?}\n\n\n", path, path.test_data);
@@ -426,18 +424,32 @@ pub fn parse(
         let mut line_iter = group.test_data.iter().map(|x| x.as_str());
         let mut parsed_tests: Vec<ParsedTest> = Vec::new();
         if group.test_type == TestType::Doc {
+            // when parsing doc tests just look for lines starting with test and parse them
+            loop {
+                let line = match get_next(&mut line_iter) {
+                    Some(res) => res,
+                    None => break,
+                };
+
+                if doc_test_line.is_match(line) {
+                    parsed_tests.push(ParsedTest::new(line.to_string()))
+                }
+            }
         } else {
+            //DEBUG
             println!("doing: {}", group);
             let test_block_start = match get_next(&mut line_iter) {
                 Some(res) => res,
                 None => break,
             };
 
+            //DEBUG
             println!("found line {}", test_block_start);
 
             let capture = match test_block_start_match.captures(test_block_start) {
                 Some(res) => res,
                 None => {
+                    //DEBUG
                     println!("huh");
                     break;
                 }
@@ -453,6 +465,7 @@ pub fn parse(
                     );
                 }
             };
+            //DEBUG
             println!("found count {}", count);
             // parse each test line
             for _ in 0..count {
@@ -467,7 +480,7 @@ pub fn parse(
                 parsed_tests.push(parsed_test);
             }
 
-            // add error reasons to failed tests
+            // parse the error reasons under "failures:" and add them to the correct tests
             let mut in_failure_block = false;
 
             if failed > 0 {
@@ -483,6 +496,7 @@ pub fn parse(
                         None => break,
                     }
                     .trim();
+                    //DEBUG
                     println!("fail line: {}", line);
 
                     if failure_title.is_match(line) {
@@ -526,25 +540,34 @@ pub fn parse(
                 // skip through the list of failed tests after the second "failures:"
                 for _ in 0..failed {
                     let _temp = get_next(&mut line_iter);
+                    //DEBUG
                     println!("temp: {:?}", _temp);
                 }
             }
+            //DEBUG
+            println!("tests: {:?}", parsed_tests);
+            let summary = match get_next(&mut line_iter) {
+                Some(res) => res,
+                None => {
+                    return parse_error!(
+                        "Could not extract summary data for {}",
+                        group.full_path()
+                    );
+                }
+            };
+            println!("summary: {:?}, {}", summary, group.test_type);
+            parsed_groups.push(ParsedTestGroup {
+                crate_name: group.crate_name.clone(),
+                file_path: group.file_path.clone(),
+                tests: parsed_tests,
+                summary: Summary::new(summary).map_err(|x| x)?,
+            })
         }
-        println!("tests: {:?}", parsed_tests);
-        let summary = match get_next(&mut line_iter) {
-            Some(res) => res,
-            None => {
-                return parse_error!("Could not extract summary data for {}", group.full_path());
-            }
-        };
-        println!("summary: {:?}", summary);
-        parsed_groups.push(ParsedTestGroup {
-            crate_name: group.crate_name.clone(),
-            file_path: group.file_path.clone(),
-            tests: parsed_tests,
-            summary: Summary::new(summary).map_err(|x| x)?,
-        })
     }
     println!("stopped finding");
+    //DEBUG
+    let mut s = 0;
+
+    parsed_groups.iter().for_each(|x| s += x.tests.len());
     Ok(parsed_groups)
 }
