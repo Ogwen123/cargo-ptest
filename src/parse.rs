@@ -146,38 +146,40 @@ struct ParsedTest {
 }
 
 impl ParsedTest {
-    fn new(test_line: String) -> ParsedTest {
+    fn new(test_line: String) -> Result<ParsedTest, ParseError> {
         // write regex to validate test line, path, status, note, etc
+        let test_line_match = Regex::new(
+            r"test (?<module_path>[\w:_]+)( - (?<note>[\w\s]+))? ... (?<status>FAILED|ignored|ok)(, (?<ignore_reason>[\w\s]+))?",
+        ).unwrap();
 
-        let split_test: Vec<&str> = test_line.split("...").collect::<Vec<&str>>();
-
-        let path_info = split_test[0];
-
-        let split_path: Vec<&str> = path_info
-            .split(" ")
-            .filter(|x| x.len() > 0)
-            .collect::<Vec<&str>>();
-
-        let path = split_path[1].to_string();
-
-        let mut note: Option<String> = None;
-        if path_info.contains("-") {
-            let mut buffer = String::new();
-            let mut found_dash: bool = false;
-            for i in split_path {
-                if found_dash {
-                    buffer += i;
-                    buffer += " ";
-                } else {
-                    if i == "-" {
-                        found_dash = true
-                    }
-                }
+        let capture = match test_line_match.captures(test_line.as_str()) {
+            Some(res) => res,
+            None => {
+                return parse_error!(
+                    "Data could not be extracted from provided test line, got \"{}\"",
+                    test_line
+                );
             }
-            note = Some(buffer.trim().to_string());
-        }
+        };
 
-        let status_string = split_test[1].trim();
+        let path = match capture.name("module_path") {
+            Some(res) => res.as_str().to_string(),
+            None => {
+                return parse_error!(
+                    "Could not extract module path from test line, test line is {}",
+                    test_line
+                );
+            }
+        };
+        let status_string = match capture.name("status") {
+            Some(res) => res.as_str(),
+            None => {
+                return parse_error!(
+                    "Could not extract status from test line, test line is {}",
+                    test_line
+                );
+            }
+        };
 
         let status = match &status_string {
             x if x.contains("ok") => Status::Ok,
@@ -185,21 +187,15 @@ impl ParsedTest {
             x if x.contains("ignored") => Status::Ignored,
             _ => Status::Ok,
         };
-
-        let mut ignore_reason: Option<String> = None;
-
-        if status == Status::Ignored && status_string.contains(", ") {
-            ignore_reason = Some(status_string.split(", ").collect::<Vec<&str>>()[1].to_string())
-        }
-
-        ParsedTest {
+        
+        Ok(ParsedTest {
             parsed: true,
             module_path: path,
             status,
-            note,
+            note: capture.name("note").map_or(None, |x| Some(x.as_str().to_string())),
             error_reason: None,
-            ignore_reason,
-        }
+            ignore_reason: capture.name("ignore_reason").map_or(None, |x| Some(x.as_str().to_string())),
+        })
     }
 
     fn add_error_reason(&mut self, error_reason: String) {
@@ -432,7 +428,7 @@ pub fn parse(
                 };
 
                 if doc_test_line.is_match(line) {
-                    parsed_tests.push(ParsedTest::new(line.to_string()))
+                    parsed_tests.push(ParsedTest::new(line.to_string()).map_err(|x| x)?)
                 }
             }
         } else {
@@ -473,7 +469,7 @@ pub fn parse(
                     Some(res) => res,
                     None => break,
                 };
-                let parsed_test = ParsedTest::new(line.to_string());
+                let parsed_test = ParsedTest::new(line.to_string()).map_err(|x| x)?;
                 if parsed_test.status == Status::Failed {
                     failed += 1
                 }
