@@ -382,6 +382,20 @@ impl Summary {
     }
 }
 
+impl Default for Summary {
+    fn default() -> Self {
+        Summary {
+            status: Status::Failed,
+            passed: 0,
+            failed: 0,
+            ignored: 0,
+            measured: 0,
+            filtered: 0,
+            time: 0.0,
+        }
+    }
+}
+
 pub struct ParsedTestGroup {
     pub crate_name: String,
     pub file_path: Vec<String>,
@@ -469,7 +483,12 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
             }
         }
     }
-    blocks.push(RawTestGroup::new(String::new(), buffer, true).map_err(|x| x)?);
+    if reached_doc_tests {
+        blocks.push(RawTestGroup::new(String::new(), buffer, reached_doc_tests).map_err(|x| x)?);
+    } else {
+        blocks.push(RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), reached_doc_tests).map_err(|x| x)?);
+    }
+    
     //DEBUG
     println!("blocks: {}", blocks.len());
     Ok(blocks)
