@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::run::RunError;
 use regex::Regex;
 use std::fmt::{Debug, Display, Formatter};
@@ -16,7 +15,7 @@ macro_rules! map_parse_error {
 }
 
 #[derive(PartialEq, Clone)]
-enum Status {
+pub enum Status {
     Ok,
     Failed,
     Ignored,
@@ -35,7 +34,7 @@ impl Display for Status {
 }
 
 #[derive(Clone, PartialEq)]
-enum TestType {
+pub enum TestType {
     Unit,
     Doc,
     Tests,
@@ -55,8 +54,27 @@ impl Display for TestType {
     }
 }
 
+#[derive(Clone, PartialEq)]
+pub enum GeneralTestType {
+    Normal,
+    Doc,
+}
+
+impl Display for GeneralTestType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                GeneralTestType::Normal => "Normal",
+                GeneralTestType::Doc => "Doc",
+            }
+        )
+    }
+}
+
 #[derive(Clone)]
-struct RawTestGroup {
+pub struct RawTestGroup {
     test_type: TestType,
     file_path: Vec<String>,
     crate_name: String,
@@ -136,13 +154,14 @@ impl Display for RawTestGroup {
 }
 
 #[derive(Clone)]
-struct ParsedTest {
-    parsed: bool,
-    module_path: String,
-    status: Status,
-    note: Option<String>,
-    error_reason: Option<String>,
-    ignore_reason: Option<String>,
+pub struct ParsedTest {
+    pub test_type: GeneralTestType,
+    pub module_path: String,
+    pub status: Status,
+    pub file_path: Option<String>,
+    pub note: Option<String>,
+    pub error_reason: Option<String>,
+    pub ignore_reason: Option<String>,
 }
 
 impl ParsedTest {
@@ -151,51 +170,118 @@ impl ParsedTest {
         let test_line_match = Regex::new(
             r"test (?<module_path>[\w:_]+)( - (?<note>[\w\s]+))? ... (?<status>FAILED|ignored|ok)(, (?<ignore_reason>[\w\s]+))?",
         ).unwrap();
+        let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
 
-        let capture = match test_line_match.captures(test_line.as_str()) {
-            Some(res) => res,
-            None => {
-                return parse_error!(
-                    "Data could not be extracted from provided test line, got \"{}\"",
-                    test_line
-                );
-            }
-        };
+        if test_line_match.is_match(test_line.as_str()) {
+            let capture = match test_line_match.captures(test_line.as_str()) {
+                Some(res) => res,
+                None => {
+                    return parse_error!(
+                        "Data could not be extracted from provided test line, got \"{}\"",
+                        test_line
+                    );
+                }
+            };
 
-        let path = match capture.name("module_path") {
-            Some(res) => res.as_str().to_string(),
-            None => {
-                return parse_error!(
-                    "Could not extract module path from test line, test line is {}",
-                    test_line
-                );
-            }
-        };
-        let status_string = match capture.name("status") {
-            Some(res) => res.as_str(),
-            None => {
-                return parse_error!(
-                    "Could not extract status from test line, test line is {}",
-                    test_line
-                );
-            }
-        };
+            let path = match capture.name("module_path") {
+                Some(res) => res.as_str().to_string(),
+                None => {
+                    return parse_error!(
+                        "Could not extract module path from test line, test line is {}",
+                        test_line
+                    );
+                }
+            };
+            let status_string = match capture.name("status") {
+                Some(res) => res.as_str(),
+                None => {
+                    return parse_error!(
+                        "Could not extract status from test line, test line is {}",
+                        test_line
+                    );
+                }
+            };
 
-        let status = match &status_string {
-            x if x.contains("ok") => Status::Ok,
-            x if x.contains("FAILED") => Status::Failed,
-            x if x.contains("ignored") => Status::Ignored,
-            _ => Status::Ok,
-        };
-        
-        Ok(ParsedTest {
-            parsed: true,
-            module_path: path,
-            status,
-            note: capture.name("note").map_or(None, |x| Some(x.as_str().to_string())),
-            error_reason: None,
-            ignore_reason: capture.name("ignore_reason").map_or(None, |x| Some(x.as_str().to_string())),
-        })
+            let status = match &status_string {
+                x if x.contains("ok") => Status::Ok,
+                x if x.contains("FAILED") => Status::Failed,
+                x if x.contains("ignored") => Status::Ignored,
+                _ => Status::Ok,
+            };
+
+            Ok(ParsedTest {
+                test_type: GeneralTestType::Normal,
+                module_path: path,
+                status,
+                file_path: None,
+                note: capture
+                    .name("note")
+                    .map_or(None, |x| Some(x.as_str().to_string())),
+                error_reason: None,
+                ignore_reason: capture
+                    .name("ignore_reason")
+                    .map_or(None, |x| Some(x.as_str().to_string())),
+            })
+        } else if doc_test_line.is_match(test_line.as_str()) {
+            let capture = match doc_test_line.captures(test_line.as_str()) {
+                Some(res) => res,
+                None => {
+                    return parse_error!(
+                        "Data could not be extracted from provided Doc-test line, got \"{}\"",
+                        test_line
+                    );
+                }
+            };
+
+            let module_path = match capture.name("module_path") {
+                Some(res) => res.as_str().to_string(),
+                None => String::new(),
+            };
+
+            let file_path = match capture.name("file_path") {
+                Some(res) => res.as_str().to_string(),
+                None => {
+                    return parse_error!(
+                        "Could not extract file path from Doc-test line, test line is \"{}\"",
+                        test_line
+                    );
+                }
+            };
+
+            let status_string = match capture.name("status") {
+                Some(res) => res.as_str(),
+                None => {
+                    return parse_error!(
+                        "Could not extract status from test line, test line is \"{}\"",
+                        test_line
+                    );
+                }
+            };
+
+            let status = match &status_string {
+                x if x.contains("ok") => Status::Ok,
+                x if x.contains("FAILED") => Status::Failed,
+                x if x.contains("ignored") => Status::Ignored,
+                _ => Status::Ok,
+            };
+
+            Ok(ParsedTest {
+                test_type: GeneralTestType::Doc,
+                module_path,
+                status,
+                file_path: Some(file_path),
+                note: capture
+                    .name("note")
+                    .map_or(None, |x| Some(x.as_str().to_string())),
+                error_reason: None,
+                ignore_reason: None,
+            })
+        } else {
+            parse_error!(
+                "Provided string wasn't normal test line or a Doc-test line, got {}",
+                test_line
+            )
+        }
     }
 
     fn add_error_reason(&mut self, error_reason: String) {
@@ -207,8 +293,14 @@ impl Display for ParsedTest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RawTest {{\n    path: {}\n    status: {}\n    note: {:?}\n    error_reason: {:?}\n  }}",
-            self.module_path, self.status, self.note, self.error_reason
+            "\nParsedTest {{\n    test_type: {}\n    module_path: {}\n    status: {}\n    file_path: {:?}\n    note: {:?}\n    error_reason: {:?}\n    ignore_reason: {:?}\n}}",
+            self.test_type,
+            self.module_path,
+            self.status,
+            self.file_path,
+            self.note,
+            self.error_reason,
+            self.ignore_reason
         )
     }
 }
@@ -220,13 +312,13 @@ impl Debug for ParsedTest {
 }
 
 pub struct Summary {
-    status: Status,
-    passed: u32,
-    failed: u32,
-    ignored: u32,
-    measured: u32,
-    filtered: u32,
-    time: f64,
+    pub status: Status,
+    pub passed: u32,
+    pub failed: u32,
+    pub ignored: u32,
+    pub measured: u32,
+    pub filtered: u32,
+    pub time: f64,
 }
 
 impl Summary {
@@ -291,10 +383,10 @@ impl Summary {
 }
 
 pub struct ParsedTestGroup {
-    crate_name: String,
-    file_path: Vec<String>,
-    tests: Vec<ParsedTest>,
-    summary: Summary,
+    pub crate_name: String,
+    pub file_path: Vec<String>,
+    pub tests: Vec<ParsedTest>,
+    pub summary: Option<Summary>,
 }
 
 #[derive(Debug)]
@@ -320,17 +412,6 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
     }
 }
 
-fn update_raw_test_error(raw_tests: &mut Vec<ParsedTest>, buffer: &String, name: &String) {
-    println!("adding error to raw test");
-    // add error message to raw test
-    for i in raw_tests {
-        if i.module_path == *name {
-            i.error_reason = Some(buffer.clone());
-            break;
-        }
-    }
-}
-
 fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
     let doc_test_beginning = Regex::new(r"Doc-tests (?<crate>[\w-]+)").unwrap();
@@ -346,7 +427,7 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
         };
     });
 
-    let mut lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
+    let lines = windows_safe_out.split("\n").filter(|x| x.len() != 0);
 
     let mut blocks: Vec<RawTestGroup> = Vec::new();
     let mut buffer: Vec<String> = Vec::new();
@@ -389,23 +470,18 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
         }
     }
     blocks.push(RawTestGroup::new(String::new(), buffer, true).map_err(|x| x)?);
+    //DEBUG
     println!("blocks: {}", blocks.len());
     Ok(blocks)
 }
 
 // possible endings - ok, FAILED, ignored
 
-pub fn parse(
-    stdout: String,
-    stderr: String,
-    config: &Config,
-) -> Result<Vec<ParsedTestGroup>, ParseError> {
+pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, ParseError> {
     println!("{}", stdout);
     // regex
-    let test_group_start =
-        Regex::new(r"Running (unittests ?)(?<path>\w+) \((?<binpath>\w+)\)").unwrap();
     let test_block_start_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
-    let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
+    let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
 
     for path in merge_outputs(stdout.clone(), stderr.clone()).map_err(|x| x)? {
         println!("{}\n{:?}\n\n\n", path, path.test_data);
@@ -431,6 +507,12 @@ pub fn parse(
                     parsed_tests.push(ParsedTest::new(line.to_string()).map_err(|x| x)?)
                 }
             }
+            parsed_groups.push(ParsedTestGroup {
+                crate_name: group.crate_name.clone(),
+                file_path: group.file_path.clone(),
+                tests: parsed_tests,
+                summary: None,
+            })
         } else {
             //DEBUG
             println!("doing: {}", group);
@@ -556,7 +638,7 @@ pub fn parse(
                 crate_name: group.crate_name.clone(),
                 file_path: group.file_path.clone(),
                 tests: parsed_tests,
-                summary: Summary::new(summary).map_err(|x| x)?,
+                summary: Some(Summary::new(summary).map_err(|x| x)?),
             })
         }
     }
@@ -565,5 +647,6 @@ pub fn parse(
     let mut s = 0;
 
     parsed_groups.iter().for_each(|x| s += x.tests.len());
+    println!("tests parsed: {}", s);
     Ok(parsed_groups)
 }

@@ -116,7 +116,7 @@ pub fn run() -> Result<(), RunError> {
         return Ok(());
     }
 
-    let parsed = match parse(stdout, stderr, &config) {
+    let parsed = match parse(stdout, stderr) {
         Ok(res) => res,
         Err(err) => return Err(err.to_run_error()),
     };
