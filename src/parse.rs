@@ -1,6 +1,8 @@
+use crate::display::Colourise;
 use crate::run::RunError;
 use regex::Regex;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::AddAssign;
 
 macro_rules! parse_error {
     ($($args:tt)*) => {
@@ -15,11 +17,21 @@ pub enum Status {
     Ignored,
 }
 
+impl Status {
+    fn colour(&self) -> String {
+        match self {
+            Status::Ok => "Ok".green(),
+            Status::Failed => "FAILED".red(),
+            Status::Ignored => "Ignored".yellow(),
+        }
+    }
+}
+
 impl Display for Status {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let value = match self {
             Status::Ok => "Ok".to_string(),
-            Status::Failed => "Failed".to_string(),
+            Status::Failed => "FAILED".to_string(),
             Status::Ignored => "Ignored".to_string(),
         };
 
@@ -304,6 +316,7 @@ impl Debug for ParsedTest {
     }
 }
 
+#[derive(Clone)]
 pub struct Summary {
     pub status: Status,
     pub passed: u32,
@@ -375,6 +388,27 @@ impl Summary {
     }
 }
 
+impl Display for Summary {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "test result: {}. {} {}; {} {}; {} {}; {} {}; {} {}; finished in {}s",
+            self.status.colour(),
+            self.passed,
+            "Passed".green(),
+            self.failed,
+            "Failed".red(),
+            self.ignored,
+            "Ignored".yellow(),
+            self.measured,
+            "Measured".yellow(),
+            self.filtered,
+            "Filtered".yellow(),
+            format!("{:.2}", self.time).blue()
+        )
+    }
+}
+
 impl Default for Summary {
     fn default() -> Self {
         Summary {
@@ -386,6 +420,22 @@ impl Default for Summary {
             filtered: 0,
             time: 0.0,
         }
+    }
+}
+
+impl AddAssign for Summary {
+    fn add_assign(&mut self, rhs: Self) {
+        self.status = if self.status == Status::Failed || rhs.status == Status::Failed {
+            Status::Failed
+        } else {
+            Status::Ok
+        };
+        self.passed = self.passed + rhs.passed;
+        self.failed = self.failed + rhs.failed;
+        self.ignored = self.ignored + rhs.ignored;
+        self.measured = self.measured + rhs.measured;
+        self.filtered = self.filtered + rhs.filtered;
+        self.time = self.time + rhs.time;
     }
 }
 

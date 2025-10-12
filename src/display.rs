@@ -1,7 +1,7 @@
 use crate::parse::{GeneralTestType, ParsedTestGroup, Status, Summary};
 use std::ops::Add;
 
-trait Colourise {
+pub trait Colourise {
     fn green(&self) -> String;
     fn red(&self) -> String;
     fn yellow(&self) -> String;
@@ -23,6 +23,24 @@ impl Colourise for &str {
 
     fn blue(&self) -> String {
         String::from("\x1b[34m") + &*self.to_string() + "\x1b[0m"
+    }
+}
+
+impl Colourise for String {
+    fn green(&self) -> String {
+        String::from("\x1b[32m") + self + "\x1b[0m"
+    }
+
+    fn red(&self) -> String {
+        String::from("\x1b[31m") + self + "\x1b[0m"
+    }
+
+    fn yellow(&self) -> String {
+        String::from("\x1b[33m") + self + "\x1b[0m"
+    }
+
+    fn blue(&self) -> String {
+        String::from("\x1b[34m") + self + "\x1b[0m"
     }
 }
 
@@ -89,6 +107,13 @@ impl StringBuilder {
                 .add(line.as_ref())
                 .add(self.suffix.as_str()),
         )
+    }
+
+    fn add_raw<T>(&mut self, line: T)
+    where
+        T: ToString + AsRef<str>,
+    {
+        self.lines.push(line.to_string())
     }
 
     fn string(&self) -> String {
@@ -175,8 +200,12 @@ impl Display {
                     }
                 }
             }
+            if let Some(summary) = group.summary.clone() {
+                total_summary += summary
+            }
         }
-
+        sb.add_raw("\n");
+        sb.add_raw(total_summary.to_string());
         sb.string()
     }
     fn json(&self) -> String {
