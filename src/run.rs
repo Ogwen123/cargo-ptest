@@ -78,8 +78,8 @@ pub fn run() -> Result<(), RunError> {
 
     forward_args.push("--color=never".to_string());
 
-    println!("{:?}", forward_args);
-    println!("{:?}", consume_args);
+    //println!("{:?}", forward_args);
+    //println!("{:?}", consume_args);
 
     let config = match config(consume_args) {
         Ok(res) => res,

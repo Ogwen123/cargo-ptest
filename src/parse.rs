@@ -197,7 +197,7 @@ impl ParsedTest {
             };
 
             let status = ParsedTest::match_status(status_string);
-            
+
             Ok(ParsedTest {
                 test_type: GeneralTestType::Normal,
                 module_path: path,
@@ -485,22 +485,15 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
         );
     }
 
-    //DEBUG
-    println!("blocks: {}", blocks.len());
     Ok(blocks)
 }
 
 // possible endings - ok, FAILED, ignored
 
 pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, ParseError> {
-    println!("{}", stdout);
     // regex
     let test_block_start_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
     let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
-
-    for path in merge_outputs(stdout.clone(), stderr.clone()).map_err(|x| x)? {
-        println!("{}\n{:?}\n\n\n", path, path.test_data);
-    }
 
     let mut parsed_groups: Vec<ParsedTestGroup> = Vec::new();
     let groups = merge_outputs(stdout, stderr).map_err(|x| x)?;
@@ -529,23 +522,14 @@ pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, Par
                 summary: None,
             })
         } else {
-            //DEBUG
-            println!("doing: {}", group);
             let test_block_start = match get_next(&mut line_iter) {
                 Some(res) => res,
                 None => break,
             };
 
-            //DEBUG
-            println!("found line {}", test_block_start);
-
             let capture = match test_block_start_match.captures(test_block_start) {
                 Some(res) => res,
-                None => {
-                    //DEBUG
-                    println!("huh");
-                    break;
-                }
+                None => break,
             };
             let count_str = &capture["count"];
 
@@ -558,8 +542,6 @@ pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, Par
                     );
                 }
             };
-            //DEBUG
-            println!("found count {}", count);
             // parse each test line
             for _ in 0..count {
                 let line = match get_next(&mut line_iter) {
@@ -589,8 +571,6 @@ pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, Par
                         None => break,
                     }
                     .trim();
-                    //DEBUG
-                    println!("fail line: {}", line);
 
                     if failure_title.is_match(line) {
                         add_to_buffer = true;
@@ -632,13 +612,10 @@ pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, Par
 
                 // skip through the list of failed tests after the second "failures:"
                 for _ in 0..failed {
-                    let _temp = get_next(&mut line_iter);
-                    //DEBUG
-                    println!("temp: {:?}", _temp);
+                    let _ = get_next(&mut line_iter);
                 }
             }
-            //DEBUG
-            println!("tests: {:?}", parsed_tests);
+
             let summary = match get_next(&mut line_iter) {
                 Some(res) => res,
                 None => {
@@ -648,7 +625,6 @@ pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, Par
                     );
                 }
             };
-            println!("summary: {:?}, {}", summary, group.test_type);
             parsed_groups.push(ParsedTestGroup {
                 crate_name: group.crate_name.clone(),
                 file_path: group.file_path.clone(),
@@ -657,11 +633,6 @@ pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, Par
             })
         }
     }
-    println!("stopped finding");
-    //DEBUG
-    let mut s = 0;
 
-    parsed_groups.iter().for_each(|x| s += x.tests.len());
-    println!("tests parsed: {}", s);
     Ok(parsed_groups)
 }
