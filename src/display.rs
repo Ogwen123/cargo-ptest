@@ -1,4 +1,5 @@
 use crate::parse::{GeneralTestType, ParsedTestGroup, Status, Summary};
+use std::ops::Add;
 
 trait Colourise {
     fn green(&self) -> String;
@@ -56,6 +57,45 @@ impl Pipes {
     }
 }
 
+pub struct StringBuilder {
+    lines: Vec<String>,
+    // a string to be added to the start of each line that is added through add()
+    prefix: String,
+    // a string to be added to the end of each line that is added through add(), e.g. \n
+    suffix: String,
+}
+
+impl StringBuilder {
+    fn new<A, B, C>(initial_message: A, prefix: B, suffix: C) -> Self
+    where
+        A: ToString,
+        B: ToString,
+        C: ToString,
+    {
+        StringBuilder {
+            lines: vec![initial_message.to_string()],
+            prefix: prefix.to_string(),
+            suffix: suffix.to_string(),
+        }
+    }
+
+    fn add<T>(&mut self, line: T)
+    where
+        T: ToString + AsRef<str>,
+    {
+        self.lines.push(
+            self.prefix
+                .clone()
+                .add(line.as_ref())
+                .add(self.suffix.as_str()),
+        )
+    }
+
+    fn string(&self) -> String {
+        self.lines.join("")
+    }
+}
+
 pub struct Display {
     initial_message: String,
     test_groups: Vec<ParsedTestGroup>,
@@ -75,68 +115,69 @@ impl Display {
         String::new()
     }
     fn linear(&self) -> String {
-        let mut string: String = self.initial_message.clone() + "\n";
+        let mut sb: StringBuilder = StringBuilder::new(
+            self.initial_message.clone() + "\n",
+            Pipes::T.d() + " ",
+            "\n",
+        );
 
         let mut total_summary: Summary = Summary::default();
 
         for group in &self.test_groups {
             for test in group.tests.clone() {
-                if test.status == Status::Ok {
-                    string += format!(
-                        "{} - {} {}\n",
-                        "Pass".green(),
-                        if test.test_type == GeneralTestType::Doc {
-                            test.file_path.map_or("ERROR".to_string(), |x| x)
-                        } else {
+                if test.test_type == GeneralTestType::Normal {
+                    if test.status == Status::Ok {
+                        sb.add(format!("{} - {}", "Pass".green(), test.module_path))
+                    } else if test.status == Status::Ignored {
+                        sb.add(format!(
+                            "{} - {} {}",
+                            "Ignored".yellow(),
+                            test.module_path,
+                            test.ignore_reason
+                                .clone()
+                                .map_or("".to_string(), |x| format!("({})", x)),
+                        ))
+                    } else if test.status == Status::Failed {
+                        sb.add(format!(
+                            "{} - {} - See reason below",
+                            "Failed".red(),
                             test.module_path
-                        },
-                        if test.test_type == GeneralTestType::Doc {
+                        ))
+                    }
+                } else {
+                    if test.status == Status::Ok {
+                        sb.add(format!(
+                            "{} - {} from {} {}",
+                            "Pass".green(),
+                            test.module_path,
+                            test.file_path.map_or("ERROR".to_string(), |x| x),
                             " Doc-test".blue()
-                        } else {
-                            "".to_string()
-                        }
-                    )
-                    .as_str()
-                } else if test.status == Status::Ignored {
-                    string += format!(
-                        "{} - {} {} {}\n",
-                        "Ignored".yellow(),
-                        if test.test_type == GeneralTestType::Doc {
-                            test.file_path.map_or("ERROR".to_string(), |x| x)
-                        } else {
-                            test.module_path
-                        },
-                        test.ignore_reason
-                            .clone()
-                            .map_or("".to_string(), |x| format!("({})", x)),
-                        if test.test_type == GeneralTestType::Doc {
+                        ))
+                    } else if test.status == Status::Ignored {
+                        sb.add(format!(
+                            "{} - {} from {} {} {}",
+                            "Ignored".yellow(),
+                            test.module_path,
+                            test.file_path.map_or("ERROR".to_string(), |x| x),
+                            test.ignore_reason
+                                .clone()
+                                .map_or("".to_string(), |x| format!("({})", x)),
                             " Doc-test".blue()
-                        } else {
-                            "".to_string()
-                        }
-                    )
-                    .as_str()
-                } else if test.status == Status::Failed {
-                    string += format!(
-                        "{} - {} - See reason below {}\n",
-                        "Failed".red(),
-                        if test.test_type == GeneralTestType::Doc {
-                            test.file_path.map_or("ERROR".to_string(), |x| x)
-                        } else {
-                            test.module_path
-                        },
-                        if test.test_type == GeneralTestType::Doc {
+                        ))
+                    } else if test.status == Status::Failed {
+                        sb.add(format!(
+                            "{} - {} from {} - See reason below {}",
+                            "Failed".red(),
+                            test.module_path,
+                            test.file_path.map_or("ERROR".to_string(), |x| x),
                             " Doc-test".blue()
-                        } else {
-                            "".to_string()
-                        }
-                    )
-                    .as_str()
+                        ))
+                    }
                 }
             }
         }
 
-        string
+        sb.string()
     }
     fn json(&self) -> String {
         String::new()

@@ -8,12 +8,6 @@ macro_rules! parse_error {
     };
 }
 
-macro_rules! map_parse_error {
-    ($($args:tt)*) => {
-        ParseError { error: format!("ParseError: {}", format!($($args)*)) }
-    };
-}
-
 #[derive(PartialEq, Clone)]
 pub enum Status {
     Ok,
@@ -99,7 +93,7 @@ impl RawTestGroup {
                 test_data,
             })
         } else {
-            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w/.-]+) \(target/debug/deps/(?<crate_name>[\w/.-]+)-(?<hash>[\w]+)\)").unwrap();
+            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w/.-]+) \(target/debug/deps/(?<crate_name>[\w/.-]+)-(?<hash>\w+)\)").unwrap();
 
             let capture = match stderr_message.captures(stderr_line.as_str()) {
                 Some(res) => res,
@@ -118,7 +112,7 @@ impl RawTestGroup {
                 return parse_error!("No data found in running line.");
             }
 
-            let mut test_type: TestType;
+            let test_type: TestType;
 
             if stderr_line.contains("unittest") {
                 test_type = TestType::Unit
@@ -170,7 +164,7 @@ impl ParsedTest {
         let test_line_match = Regex::new(
             r"test (?<module_path>[\w:_]+)( - (?<note>[\w\s]+))? ... (?<status>FAILED|ignored|ok)(, (?<ignore_reason>[\w\s]+))?",
         ).unwrap();
-        let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>[\d]+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>[\w]+)").unwrap();
+        let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
 
         if test_line_match.is_match(test_line.as_str()) {
             let capture = match test_line_match.captures(test_line.as_str()) {
@@ -202,13 +196,8 @@ impl ParsedTest {
                 }
             };
 
-            let status = match &status_string {
-                x if x.contains("ok") => Status::Ok,
-                x if x.contains("FAILED") => Status::Failed,
-                x if x.contains("ignored") => Status::Ignored,
-                _ => Status::Ok,
-            };
-
+            let status = ParsedTest::match_status(status_string);
+            
             Ok(ParsedTest {
                 test_type: GeneralTestType::Normal,
                 module_path: path,
@@ -258,12 +247,7 @@ impl ParsedTest {
                 }
             };
 
-            let status = match &status_string {
-                x if x.contains("ok") => Status::Ok,
-                x if x.contains("FAILED") => Status::Failed,
-                x if x.contains("ignored") => Status::Ignored,
-                _ => Status::Ok,
-            };
+            let status = ParsedTest::match_status(status_string);
 
             Ok(ParsedTest {
                 test_type: GeneralTestType::Doc,
@@ -286,6 +270,15 @@ impl ParsedTest {
 
     fn add_error_reason(&mut self, error_reason: String) {
         self.error_reason = Some(error_reason)
+    }
+
+    fn match_status(status_string: &str) -> Status {
+        match &status_string {
+            x if x.contains("ok") => Status::Ok,
+            x if x.contains("FAILED") => Status::Failed,
+            x if x.contains("ignored") => Status::Ignored,
+            _ => Status::Ok,
+        }
     }
 }
 
@@ -486,9 +479,12 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
     if reached_doc_tests {
         blocks.push(RawTestGroup::new(String::new(), buffer, reached_doc_tests).map_err(|x| x)?);
     } else {
-        blocks.push(RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), reached_doc_tests).map_err(|x| x)?);
+        blocks.push(
+            RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), reached_doc_tests)
+                .map_err(|x| x)?,
+        );
     }
-    
+
     //DEBUG
     println!("blocks: {}", blocks.len());
     Ok(blocks)
