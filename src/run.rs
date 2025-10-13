@@ -27,6 +27,9 @@ fn help() {
     println!();
 }
 
+/// Runs cargo test and automatically parses the output into [ParsedTestGroup] to be passed onto [Display].
+/// WIP
+/// Currently only works when being run as a binary, once completed you will be able to pass a [Config] but currently all configuration is done through fetching the command args
 pub fn run() -> Result<Vec<ParsedTestGroup>, RunError> {
     let unfiltered_args: Vec<String> = std::env::args().collect();
 
