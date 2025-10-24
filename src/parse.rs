@@ -159,8 +159,8 @@ impl Display for RawTestGroup {
     }
 }
 
-/// This is the deserialized form for a test.
 #[derive(Clone)]
+/// This is the deserialized form for a test.
 pub struct ParsedTest {
     pub test_type: GeneralTestType,
     pub module_path: String,
@@ -446,6 +446,7 @@ impl AddAssign for Summary {
     }
 }
 
+#[derive(Clone)]
 /// The tests for each file are seperated and stored in this struct. E.g. all the tests in src/main.rs would be in a [ParsedTestGroup] and all the tests from src/lib.rs would be in another [ParsedTestGroup].
 /// All Doc-tests, regardless of which file they are from, are stored in a single [ParsedTestGroup]. They will have an empty file_path and summary and the crate_name will be "Doc-tests".
 pub struct ParsedTestGroup {
