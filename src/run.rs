@@ -30,20 +30,24 @@ fn help() {
 /// Runs cargo test and automatically parses the output into [ParsedTestGroup] to be passed onto [Display].
 /// WIP
 /// Currently only works when being run as a binary, once completed you will be able to pass a [Config] but currently all configuration is done through fetching the command args
-pub fn run() -> Result<Vec<ParsedTestGroup>, RunError> {
-    let unfiltered_args: Vec<String> = std::env::args().collect();
-
+pub fn run(cmd_args: Option<Vec<String>>) -> Result<Vec<ParsedTestGroup>, RunError> {
     let args: Vec<String>;
 
-    // when running cargo ptest the args look like ["C:\\Users\\user\\.cargo\\bin\\cargo-ptest.exe", "ptest", ...]
-    // when running cargo-ptest the args look like ["cargo-ptest"]
+    if cmd_args.is_none() {
+        let unfiltered_args: Vec<String> = std::env::args().collect();
 
-    if unfiltered_args[0] == "cargo-ptest" {
-        args = unfiltered_args[1..].to_vec();
-    } else if unfiltered_args[1] == "ptest" {
-        args = unfiltered_args[2..].to_vec();
+        // when running cargo ptest the args look like ["C:\\Users\\user\\.cargo\\bin\\cargo-ptest.exe", "ptest", ...]
+        // when running cargo-ptest the args look like ["cargo-ptest"]
+
+        if unfiltered_args[0] == "cargo-ptest" {
+            args = unfiltered_args[1..].to_vec();
+        } else if unfiltered_args[1] == "ptest" {
+            args = unfiltered_args[2..].to_vec();
+        } else {
+            return run_error!("how did you manage to see this error");
+        }
     } else {
-        return run_error!("how did you manage to see this error");
+        args = cmd_args.unwrap()
     }
 
     //let mut complete_args: Vec<String> = vec!["--tests".to_string(), "--no-fail-fast".to_string()]; // --no-fail-fast makes sure all the unit, integration and docs tests are run
