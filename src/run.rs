@@ -1,4 +1,4 @@
-use crate::config::config;
+use crate::config::{config, Config};
 use crate::parse::{parse, ParsedTestGroup};
 use std::fmt::Formatter;
 use std::process::{Command, Stdio};
@@ -30,11 +30,20 @@ fn help() {
 /// Runs cargo test and automatically parses the output into [ParsedTestGroup] to be passed onto [Display].
 /// WIP
 /// Currently only works when being run as a binary, once completed you will be able to pass a [Config] but currently all configuration is done through fetching the command args
+/// You can configure how `cargo test` is run using the cmd_args parameter, if cmd_args is None then it assumes you are running it as a binary and uses std::env::args() instead
 pub fn run(cmd_args: Option<Vec<String>>) -> Result<Vec<ParsedTestGroup>, RunError> {
-    let args: Vec<String>;
+    let is_lib = cmd_args.is_some();
 
-    if cmd_args.is_none() {
+    let cfg: Config;
+    let mut forward_args: Vec<String> = Vec::new();
+
+    if is_lib {
+        forward_args = cmd_args.unwrap()
+    } else {
         let unfiltered_args: Vec<String> = std::env::args().collect();
+
+        let args: Vec<String>;
+        let mut consume_args: Vec<String> = Vec::new();
 
         // when running cargo ptest the args look like ["C:\\Users\\user\\.cargo\\bin\\cargo-ptest.exe", "ptest", ...]
         // when running cargo-ptest the args look like ["cargo-ptest"]
@@ -46,51 +55,42 @@ pub fn run(cmd_args: Option<Vec<String>>) -> Result<Vec<ParsedTestGroup>, RunErr
         } else {
             return run_error!("how did you manage to see this error");
         }
-    } else {
-        args = cmd_args.unwrap()
-    }
 
-    //let mut complete_args: Vec<String> = vec!["--tests".to_string(), "--no-fail-fast".to_string()]; // --no-fail-fast makes sure all the unit, integration and docs tests are run
-    let mut forward_args: Vec<String> = Vec::new();
-    let mut consume_args: Vec<String> = Vec::new();
+        let mut passed_forward_point: bool = false;
 
-    let mut passed_forward_point: bool = false;
+        // filter out the --no-capture args as it makes the output of the cargo test command unpredictable and messes with the parser
+        // verbose also messes up parsing so it gets filtered out
+        // remove any color so I can set color=never to avoid having to deal with ansi codes all over the place
+        let filter_list = [
+            "--nocapture",
+            "-v",
+            "--verbose",
+            "--color=always",
+            "--color=auto",
+            "--color=never",
+        ];
 
-    // filter out the --no-capture args as it makes the output of the cargo test command unpredictable and messes with the parser
-    // verbose also messes up parsing so it gets filtered out
-    // remove any color so I can set color=never to avoid having to deal with ansi codes all over the place
-    let filter_list = [
-        "--nocapture",
-        "-v",
-        "--verbose",
-        "--color=always",
-        "--color=auto",
-        "--color=never",
-    ];
-
-    args.into_iter().for_each(|x| {
-        if passed_forward_point {
-            if !filter_list.contains(&x.as_str()) {
-                forward_args.push(x)
-            }
-        } else {
-            if x == "--" {
-                passed_forward_point = true;
+        args.into_iter().for_each(|x| {
+            if passed_forward_point {
+                if !filter_list.contains(&x.as_str()) && (&cmd_args).is_none() {
+                    forward_args.push(x)
+                }
             } else {
-                consume_args.push(x);
+                if x == "--" {
+                    passed_forward_point = true;
+                } else {
+                    consume_args.push(x);
+                }
             }
-        }
-    });
+        });
 
-    forward_args.push("--color=never".to_string());
+        forward_args.push("--color=never".to_string());
 
-    //println!("{:?}", forward_args);
-    //println!("{:?}", consume_args);
-
-    let config = match config(consume_args) {
-        Ok(res) => res,
-        Err(err) => return Err(RunError { error: err }),
-    };
+        cfg = match config(consume_args) {
+            Ok(res) => res,
+            Err(err) => return Err(RunError { error: err }),
+        };
+    }
 
     let cmd_result = Command::new("cargo")
         .arg("test")
