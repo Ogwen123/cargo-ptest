@@ -1,10 +1,14 @@
 pub struct Config {
     pub no_color: bool,
+    pub debug: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { no_color: false }
+        Config {
+            no_color: false,
+            debug: false,
+        }
     }
 }
 
@@ -21,6 +25,10 @@ pub fn config(args: Vec<String>) -> Result<Config, String> {
 
         if i == "--no-color" {
             config.no_color = true;
+        }
+
+        if i == "--debug" {
+            config.debug = true;
         }
     }
     Ok(config)

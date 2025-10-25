@@ -6,5 +6,6 @@
 
 pub mod config;
 pub mod display;
+mod logger;
 pub mod parse;
 pub mod run;

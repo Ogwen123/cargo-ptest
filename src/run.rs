@@ -31,14 +31,18 @@ fn help() {
 /// WIP
 /// Currently only works when being run as a binary, once completed you will be able to pass a [Config] but currently all configuration is done through fetching the command args
 /// You can configure how `cargo test` is run using the cmd_args parameter, if cmd_args is None then it assumes you are running it as a binary and uses std::env::args() instead
-pub fn run(cmd_args: Option<Vec<String>>) -> Result<Vec<ParsedTestGroup>, RunError> {
+pub fn run(
+    _cfg: Option<Config>,
+    cmd_args: Option<Vec<String>>,
+) -> Result<Vec<ParsedTestGroup>, RunError> {
     let is_lib = cmd_args.is_some();
 
-    let cfg: Config;
+    let mut cfg: Config;
     let mut forward_args: Vec<String> = Vec::new();
 
     if is_lib {
-        forward_args = cmd_args.unwrap()
+        forward_args = cmd_args.unwrap();
+        cfg = _cfg.unwrap_or(Config::default())
     } else {
         let unfiltered_args: Vec<String> = std::env::args().collect();
 
@@ -122,7 +126,7 @@ pub fn run(cmd_args: Option<Vec<String>>) -> Result<Vec<ParsedTestGroup>, RunErr
         return Ok(Vec::new());
     }
 
-    let parsed = match parse(stdout, stderr) {
+    let parsed = match parse(stdout, stderr, cfg) {
         Ok(res) => res,
         Err(err) => return Err(err.to_run_error()),
     };

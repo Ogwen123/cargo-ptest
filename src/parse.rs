@@ -1,4 +1,6 @@
+use crate::config::Config;
 use crate::display::Colourise;
+use crate::logger::info;
 use crate::run::RunError;
 use regex::Regex;
 use std::fmt::{Debug, Display, Formatter};
@@ -479,7 +481,11 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
     }
 }
 
-fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, ParseError> {
+fn merge_outputs(
+    stdout: String,
+    stderr: String,
+    debug: bool,
+) -> Result<Vec<RawTestGroup>, ParseError> {
     let block_beginning = Regex::new(r"running (\d+) test(s?)").unwrap();
     let doc_test_beginning = Regex::new(r"Doc-tests (?<crate>[\w-]+)").unwrap();
 
@@ -547,18 +553,36 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
         }
     }
 
+    if debug {
+        info!("Output of merging stderr and stdout");
+        for i in blocks.iter() {
+            println!("{}", i)
+        }
+    }
+
     Ok(blocks)
 }
 
 /// The main function for parsing the output of cargo test.
 /// Recommended to use this via the run function rather that using it directly as the run function filters arguments out from cargo test that will affect this function.
-pub fn parse(stdout: String, stderr: String) -> Result<Vec<ParsedTestGroup>, ParseError> {
+pub fn parse(
+    stdout: String,
+    stderr: String,
+    cfg: Config,
+) -> Result<Vec<ParsedTestGroup>, ParseError> {
+    if cfg.debug {
+        info!("Stdout");
+        println!("{}\n\n", stdout);
+        info!("Stderr");
+        println!("{}", stdout);
+    }
+
     // regex
     let test_block_start_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
     let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
 
     let mut parsed_groups: Vec<ParsedTestGroup> = Vec::new();
-    let groups = merge_outputs(stdout, stderr).map_err(|x| x)?;
+    let groups = merge_outputs(stdout, stderr, cfg.debug).map_err(|x| x)?;
 
     for group in groups {
         let mut failed = 0;
