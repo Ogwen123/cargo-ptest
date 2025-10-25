@@ -539,10 +539,12 @@ fn merge_outputs(stdout: String, stderr: String) -> Result<Vec<RawTestGroup>, Pa
     if reached_doc_tests {
         blocks.push(RawTestGroup::new(String::new(), buffer, reached_doc_tests).map_err(|x| x)?);
     } else {
-        blocks.push(
-            RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), reached_doc_tests)
-                .map_err(|x| x)?,
-        );
+        if buffer.len() > 0 {
+            blocks.push(
+                RawTestGroup::new(buffer[0].clone(), buffer[1..].to_vec(), reached_doc_tests)
+                    .map_err(|x| x)?,
+            );
+        }
     }
 
     Ok(blocks)
