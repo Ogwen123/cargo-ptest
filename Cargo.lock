@@ -13,21 +13,14 @@ dependencies = [
 
 [[package]]
 name = "cargo-ptest"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
- "log",
  "regex",
 ]
 
 [[package]]
 name = "integration"
 version = "0.1.0"
-
-[[package]]
-name = "log"
-version = "0.4.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 
 [[package]]
 name = "memchr"
