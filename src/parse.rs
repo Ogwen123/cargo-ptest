@@ -12,7 +12,7 @@ macro_rules! parse_error {
     };
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum Status {
     Ok,
     Failed,
@@ -324,7 +324,7 @@ impl Debug for ParsedTest {
 }
 
 /// Deserializes a summary line from the cargo test output
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Summary {
     pub status: Status,
     pub passed: u32,
@@ -458,6 +458,22 @@ pub struct ParsedTestGroup {
     pub summary: Option<Summary>,
 }
 
+impl Display for ParsedTestGroup {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ParsedTestGroup {{   crate_name: {},\n   file_path: {:?},\n    tests: {:?},\n    summary: {:?} }}",
+            self.crate_name,
+            self.file_path,
+            self.tests,
+            match self.summary.clone() {
+                Some(res) => res.to_string(),
+                None => "".to_string(),
+            }
+        )
+    }
+}
+
 #[derive(Debug)]
 pub struct ParseError {
     pub error: String,
@@ -574,7 +590,7 @@ pub fn parse(
         info!("Stdout");
         println!("{}\n\n", stdout);
         info!("Stderr");
-        println!("{}", stdout);
+        println!("{}", stderr);
     }
 
     // regex
