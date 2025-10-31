@@ -1,5 +1,5 @@
-use crate::config::{Config, config};
-use crate::parse::{ParsedTestGroup, parse};
+use crate::config::{config, Config};
+use crate::parse::{parse, ParsedTestGroup};
 use std::fmt::Formatter;
 use std::process::{Command, Stdio};
 
@@ -40,8 +40,29 @@ pub fn run(
     let mut cfg: Config;
     let mut forward_args: Vec<String> = Vec::new();
 
+    // filter out the --no-capture args as it makes the output of the cargo test command unpredictable and messes with the parser
+    // verbose also messes up parsing so it gets filtered out
+    // remove any color so I can set color=never to avoid having to deal with ansi codes all over the place
+    let filter_list = [
+        "--nocapture",
+        "-v",
+        "--verbose",
+        "--color=always",
+        "--color=auto",
+        "--color=never",
+    ];
+
     if is_lib {
-        forward_args = cmd_args.unwrap();
+        let args = cmd_args.unwrap();
+
+        args.into_iter().for_each(|x| {
+            if !filter_list.contains(&x.as_str()) {
+                forward_args.push(x)
+            }
+        });
+
+        forward_args.push("--color=never".to_string());
+
         cfg = _cfg.unwrap_or(Config::default())
     } else {
         let unfiltered_args: Vec<String> = std::env::args().collect();
@@ -61,18 +82,6 @@ pub fn run(
         }
 
         let mut passed_forward_point: bool = false;
-
-        // filter out the --no-capture args as it makes the output of the cargo test command unpredictable and messes with the parser
-        // verbose also messes up parsing so it gets filtered out
-        // remove any color so I can set color=never to avoid having to deal with ansi codes all over the place
-        let filter_list = [
-            "--nocapture",
-            "-v",
-            "--verbose",
-            "--color=always",
-            "--color=auto",
-            "--color=never",
-        ];
 
         args.into_iter().for_each(|x| {
             if passed_forward_point {
