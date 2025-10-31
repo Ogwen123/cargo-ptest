@@ -522,7 +522,17 @@ fn merge_outputs(
     let mut buffer: Vec<String> = Vec::new();
     let mut reached_doc_tests = false;
 
+    if debug {
+        info!("Filtered stdout from merge_outputs");
+        println!("{:?}\n\n", lines.clone().collect::<Vec<&str>>());
+        info!("Filtered stderr from merge_outputs");
+        println!("{:?}", err_lines.clone().collect::<Vec<&str>>());
+    }
+
     for x in lines {
+        if debug {
+            info!("Checking line: {}", x);
+        }
         if reached_doc_tests {
             buffer.push(x.trim().to_string());
             continue;
@@ -571,6 +581,7 @@ fn merge_outputs(
 
     if debug {
         info!("Output of merging stderr and stdout");
+        info!("Made {} blocks of tests", blocks.len());
         for i in blocks.iter() {
             println!("{}", i)
         }
