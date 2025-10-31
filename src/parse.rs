@@ -507,7 +507,13 @@ fn merge_outputs(
 
     let windows_safe_out = stdout.replace("\r", ""); // remove any carriage returns windows might be adding
     let windows_safe_err = stderr.replace("\r", "");
-
+    if debug {
+        info!("");
+        println!(
+            "{:?}",
+            windows_safe_err.clone().split("\n").collect::<Vec<&str>>()
+        );
+    }
     let mut err_lines = windows_safe_err.split("\n").filter(|x| {
         return if x.trim().starts_with("Running ") || x.trim().starts_with("Doc-tests") {
             if debug {

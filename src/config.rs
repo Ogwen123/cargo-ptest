@@ -12,7 +12,7 @@ impl Default for Config {
     }
 }
 
-const VALID_ARGS: [&str; 1] = ["--no-color"];
+const VALID_ARGS: [&str; 2] = ["--no-color", "--debug"];
 
 pub fn config(args: Vec<String>) -> Result<Config, String> {
     let mut config: Config = Default::default();

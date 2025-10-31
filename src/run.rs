@@ -1,5 +1,5 @@
-use crate::config::{config, Config};
-use crate::parse::{parse, ParsedTestGroup};
+use crate::config::{Config, config};
+use crate::parse::{ParsedTestGroup, parse};
 use std::fmt::Formatter;
 use std::process::{Command, Stdio};
 
