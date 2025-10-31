@@ -510,6 +510,9 @@ fn merge_outputs(
 
     let mut err_lines = windows_safe_err.split("\n").filter(|x| {
         return if x.trim().starts_with("Running ") || x.trim().starts_with("Doc-tests") {
+            if debug {
+                info!("Adding line \"{}\" to err_lines", x);
+            }
             true
         } else {
             false

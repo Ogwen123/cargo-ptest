@@ -1,6 +1,6 @@
 [package]
 name = "cargo-ptest"
-version = "1.2.3"
+version = "1.2.4"
 edition = "2024"
 authors = ["ogwen123 <owen.d.jones@btinternet.com>"]
 description = "If installed using cargo install it acts as a command line tool, if used as a package provides methods for running and parsing the output of cargo test."
