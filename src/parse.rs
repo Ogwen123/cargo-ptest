@@ -498,7 +498,7 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
 }
 
 fn summarise_doctests(parsed_tests: Vec<ParsedTest>) -> Summary {
-    todo!()
+    Summary::default()
 }
 
 fn merge_outputs(
