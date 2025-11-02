@@ -211,7 +211,7 @@ impl Display {
         for group in &self.test_groups {
             for test in group.tests.clone() {
                 if test.test_type == GeneralTestType::Normal {
-                    if test.status == Status::Ok {
+                    if test.status == Status::Passed {
                         sb.add(format!("{} - {}", "Pass".green(), test.module_path))
                     } else if test.status == Status::Ignored {
                         sb.add(format!(
@@ -230,7 +230,7 @@ impl Display {
                         ))
                     }
                 } else {
-                    if test.status == Status::Ok {
+                    if test.status == Status::Passed {
                         sb.add(format!(
                             "{} - {} from {} {}",
                             "Pass".green(),

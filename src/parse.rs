@@ -14,7 +14,7 @@ macro_rules! parse_error {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Status {
-    Ok,
+    Passed,
     Failed,
     Ignored,
 }
@@ -22,7 +22,7 @@ pub enum Status {
 impl Status {
     fn colour(&self) -> String {
         match self {
-            Status::Ok => "Ok".green(),
+            Status::Passed => "Passed".green(),
             Status::Failed => "FAILED".red(),
             Status::Ignored => "Ignored".yellow(),
         }
@@ -32,7 +32,7 @@ impl Status {
 impl Display for Status {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let value = match self {
-            Status::Ok => "Ok".to_string(),
+            Status::Passed => "Ok".to_string(),
             Status::Failed => "FAILED".to_string(),
             Status::Ignored => "Ignored".to_string(),
         };
@@ -293,10 +293,10 @@ impl ParsedTest {
 
     fn match_status(status_string: &str) -> Status {
         match &status_string {
-            x if x.contains("ok") => Status::Ok,
+            x if x.contains("ok") => Status::Passed,
             x if x.contains("FAILED") => Status::Failed,
             x if x.contains("ignored") => Status::Ignored,
-            _ => Status::Ok,
+            _ => Status::Passed,
         }
     }
 }
@@ -360,7 +360,7 @@ impl Summary {
         // if a value cannot be parsed from the regex then just use 0 rather than erroring
         Ok(Summary {
             status: match &capture["overall_result"] {
-                "ok" => Status::Ok,
+                "ok" => Status::Passed,
                 "FAILED" => Status::Failed,
                 _ => {
                     return parse_error!(
@@ -437,7 +437,7 @@ impl AddAssign for Summary {
         self.status = if self.status == Status::Failed || rhs.status == Status::Failed {
             Status::Failed
         } else {
-            Status::Ok
+            Status::Passed
         };
         self.passed = self.passed + rhs.passed;
         self.failed = self.failed + rhs.failed;
@@ -495,6 +495,10 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
             return Some(next);
         }
     }
+}
+
+fn summarise_doctests(parsed_tests: Vec<ParsedTest>) -> Summary {
+    todo!()
 }
 
 fn merge_outputs(
@@ -637,11 +641,14 @@ pub fn parse(
                     parsed_tests.push(ParsedTest::new(line.to_string()).map_err(|x| x)?)
                 }
             }
+
+            let summary = summarise_doctests(parsed_tests.clone());
+
             parsed_groups.push(ParsedTestGroup {
                 crate_name: group.crate_name.clone(),
                 file_path: group.file_path.clone(),
                 tests: parsed_tests,
-                summary: None,
+                summary: Some(summary),
             })
         } else {
             let test_block_start = match get_next(&mut line_iter) {
