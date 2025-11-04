@@ -448,6 +448,16 @@ impl AddAssign for Summary {
     }
 }
 
+impl AddAssign<Status> for Summary {
+    fn add_assign(&mut self, rhs: Status) {
+        match rhs {
+            Status::Failed => self.failed += 1,
+            Status::Ignored => self.ignored += 1,
+            Status::Passed => self.passed += 1,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 /// The tests for each file are seperated and stored in this struct. E.g. all the tests in src/main.rs would be in a [ParsedTestGroup] and all the tests from src/lib.rs would be in another [ParsedTestGroup].
 /// All Doc-tests, regardless of which file they are from, are stored in a single [ParsedTestGroup]. They will have an empty file_path and summary and the crate_name will be "Doc-tests".
@@ -498,7 +508,13 @@ fn get_next<'a>(iter: &mut dyn Iterator<Item = &'a str>) -> Option<&'a str> {
 }
 
 fn summarise_doctests(parsed_tests: Vec<ParsedTest>) -> Summary {
-    Summary::default()
+    let mut summary = Summary::default();
+
+    for i in parsed_tests {
+        summary += i.status
+    }
+    println!("{}", summary);
+    summary
 }
 
 fn merge_outputs(
