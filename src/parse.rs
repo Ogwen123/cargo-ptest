@@ -107,12 +107,13 @@ impl RawTestGroup {
                 test_data,
             })
         } else {
-            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w/.-]+) \(target/debug/deps/(?<crate_name>[\w/.-]+)-(?<hash>\w+)\)").unwrap();
+            let stderr_message = Regex::new(r"Running (unittests )?(?<path>[\w/\\.-]+) \(target(\\|/)debug(\\|/)deps(\\|/)(?<crate_name>[\w/.-]+)-(?<hash>\w+)(.exe)?\)").unwrap();
 
             let capture = match stderr_message.captures(stderr_line.as_str()) {
                 Some(res) => res,
                 None => {
                     return parse_error!(
+                        // TODO: generlise all the regex statements to work on windows, allow for backslashes and a optional .exe file extension on the binary paths
                         "Could not extract data from running line, got \"{}\"",
                         stderr_line
                     );
@@ -183,7 +184,7 @@ impl ParsedTest {
         let test_line_match = Regex::new(
             r"test (?<module_path>[\w:_]+)( - (?<note>[\w\s]+))? ... (?<status>FAILED|ignored|ok)(, (?<ignore_reason>[\w\s]+))?",
         ).unwrap();
-        let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
+        let doc_test_line = Regex::new(r"test (?<file_path>[\w/\\.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
 
         if test_line_match.is_match(test_line.as_str()) {
             let capture = match test_line_match.captures(test_line.as_str()) {
@@ -513,7 +514,6 @@ fn summarise_doctests(parsed_tests: Vec<ParsedTest>) -> Summary {
     for i in parsed_tests {
         summary += i.status
     }
-    println!("{}", summary);
     summary
 }
 
@@ -609,10 +609,10 @@ fn merge_outputs(
     }
 
     if debug {
-        info!("Output of merging stderr and stdout");
+        info!("\nOutput of merging stderr and stdout");
         info!("Made {} blocks of tests", blocks.len());
         for i in blocks.iter() {
-            println!("{}", i)
+            println!("merge_outputs block: {}", i)
         }
     }
 
@@ -635,7 +635,7 @@ pub fn parse(
 
     // regex
     let test_block_start_match = Regex::new(r"running (?<count>\d+) test(s?)").unwrap();
-    let doc_test_line = Regex::new(r"test (?<file_path>[\w/.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
+    let doc_test_line = Regex::new(r"test (?<file_path>[\w/\\.]+) -( (?<module_path>[\w/:]+))? \(line (?<line_num>\d+)\)( - (?<note>[\w\s]+))? \.\.\. (?<status>\w+)").unwrap();
 
     let mut parsed_groups: Vec<ParsedTestGroup> = Vec::new();
     let groups = merge_outputs(stdout, stderr, cfg.debug).map_err(|x| x)?;
