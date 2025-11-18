@@ -113,7 +113,6 @@ impl RawTestGroup {
                 Some(res) => res,
                 None => {
                     return parse_error!(
-                        // TODO: generlise all the regex statements to work on windows, allow for backslashes and a optional .exe file extension on the binary paths
                         "Could not extract data from running line, got \"{}\"",
                         stderr_line
                     );
@@ -338,7 +337,7 @@ pub struct Summary {
 
 impl Summary {
     /// If the given summary line does not match the regex then the function will return an error, if any of the numeric values cannot be extracted then they are replaced by 0.
-    fn new(summary_line: &str) -> Result<Summary, ParseError> {
+    pub fn new(summary_line: &str) -> Result<Summary, ParseError> {
         let tests_summary_line = Regex::new(r"test result: (?<overall_result>\w+)\. (?<passed>\d+) passed; (?<failed>\d+) failed; (?<ignored>\d+) ignored; (?<measured>\d+) measured; (?<filtered_out>\d+) filtered out; finished in (?<finish_time>[\d.]+)s").unwrap();
 
         if !tests_summary_line.is_match(summary_line) {
@@ -422,7 +421,7 @@ impl Display for Summary {
 impl Default for Summary {
     fn default() -> Self {
         Summary {
-            status: Status::Failed,
+            status: Status::Passed,
             passed: 0,
             failed: 0,
             ignored: 0,
@@ -467,6 +466,24 @@ pub struct ParsedTestGroup {
     pub file_path: Vec<String>,
     pub tests: Vec<ParsedTest>,
     pub summary: Option<Summary>,
+}
+
+trait AggregateSummary {
+    fn aggregate_summary(self) -> Summary;
+}
+
+impl AggregateSummary for Vec<ParsedTestGroup> {
+    fn aggregate_summary(self) -> Summary {
+        let mut summary = Summary::default();
+
+        for i in self {
+            if i.summary.is_some() {
+                summary += i.summary.unwrap()
+            }
+        }
+
+        summary
+    }
 }
 
 impl Display for ParsedTestGroup {
