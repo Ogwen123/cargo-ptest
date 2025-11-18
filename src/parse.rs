@@ -468,7 +468,7 @@ pub struct ParsedTestGroup {
     pub summary: Option<Summary>,
 }
 
-trait AggregateSummary {
+pub trait AggregateSummary {
     fn aggregate_summary(self) -> Summary;
 }
 
